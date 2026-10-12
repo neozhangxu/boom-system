@@ -2,16 +2,13 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>PRO WELL (VIETNAM) CO.,LTD - 鞋款多配色 BOM 展开矩阵 (VTable 企业级高性能版)</title>
-    <!-- 1. 引入字节跳动开源 VTable 核心库 -->
-    <script src="https://cdn.jsdelivr.net/npm/@visactor/vtable@latest/dist/vtable.min.js"></script>
-    <!-- 2. 引入 VTable 编辑器插件 -->
-    <script src="https://cdn.jsdelivr.net/npm/@visactor/vtable-editors@latest/dist/vtable-editors.min.js"></script>
+    <title>PRO WELL (VIETNAM) CO.,LTD - 鞋款多配色 BOM 展开矩阵 (.env 配置版)</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 15px; background-color: #f4f6f9; color: #333; font-size: 13px; }
         .bom-container { background: #fff; padding: 20px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 98%; margin: 0 auto; }
         
-        /* 顶部表头样式 */
         .company-title { font-size: 16px; font-weight: bold; color: #222; outline: none; }
         .doc-title { font-size: 18px; font-weight: bold; text-align: center; color: #000; margin: 10px 0; outline: none; }
         .info-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 12px; }
@@ -20,12 +17,11 @@
         .info-val { color: #000; width: 35%; outline: none; background: #fff; }
         .info-val:focus { background: #eef4ff; border: 1px solid #3b82f6; }
 
-        /* 底部表尾签名样式 */
         .excel-footer { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 13px; }
         .excel-footer td { padding: 15px 10px; border: 1px solid #ccc; outline: none; background: #fafafa; width: 33.33%; }
         .excel-footer td:focus { background: #eef4ff; }
 
-        #tableContainer { width: 100%; height: 600px; margin-bottom: 15px; border: 1px solid #e5e7eb; }
+        #bom-table { width: 100%; height: 600px; margin-bottom: 15px; border: 1px solid #ccc; }
         
         .toolbar { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
         .btn { padding: 6px 14px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
@@ -36,7 +32,6 @@
 <body>
 
     <div class="bom-container">
-        <!-- 1. 顶部可编辑表头 -->
         <div class="company-title" contenteditable="true">PRO WELL (VIETNAM) CO.,LTD</div>
         <div class="doc-title" contenteditable="true">樣品單-多配色</div>
 
@@ -77,16 +72,13 @@
             </tr>
         </table>
 
-        <!-- 操作工具栏 -->
         <div class="toolbar">
             <button class="btn" id="save-btn">💾 保存状态确认</button>
             <span class="status-tip" id="status-tip"></span>
         </div>
 
-        <!-- 2. VTable 表格容器 -->
-        <div id="tableContainer"></div>
+        <div id="bom-table"></div>
 
-        <!-- 3. 底部可编辑表尾签名栏 -->
         <table class="excel-footer">
             <tr>
                 <td contenteditable="true"><strong>核准：</strong></td>
@@ -97,9 +89,8 @@
     </div>
 
     <script>
-        let tableInstance = null;
+        let hotInstance = null;
 
-        // 加载头部基础信息
         fetch('/api/bom/header')
             .then(res => res.json())
             .then(headerData => {
@@ -110,47 +101,37 @@
                 }
             }).catch(err => console.log("加载头部信息提示:", err));
 
-        // 加载矩阵数据并渲染 VTable
         fetch('/api/bom/matrix')
             .then(res => res.json())
             .then(resData => {
-                // 注册 VTable 输入编辑器
-                const inputEditor = new VTable.editors.InputEditor();
-                VTable.registerEditor('inputEditor', inputEditor);
-
-                let columns = [
-                    { field: 'part_name', title: 'Parts (部件)', width: 140, locked: true },
-                    { field: 'material_desc', title: 'Material Description', width: 320, locked: true },
-                    { field: 'unit', title: 'Unit', width: 70, locked: true }
+                let colObjects = [
+                    { data: 'part_name', title: 'Parts (部件)', width: 140, readOnly: true },
+                    { data: 'material_desc', title: 'Material Description', width: 320, readOnly: false },
+                    { data: 'unit', title: 'Unit', width: 70, readOnly: false }
                 ];
 
-                let colorCodesList = resData.columns || [];
-                let colorColumnsMap = {}; // 记录配色列对应关系
+                let colHeaders = ['Parts (部件)', 'Material Description', 'Unit'];
+                let colorColumnsIndex = [];
+                let allDynamicColumnsIndex = [];
 
-                if (colorCodesList.length > 0) {
-                    colorCodesList.forEach(code => {
-                        let colorField = code + '_color';
-                        let processField = code + '_process';
-                        colorColumnsMap[colorField] = code;
+                if (resData.columns && resData.columns.length > 0) {
+                    resData.columns.forEach(code => {
+                        let colorIdx = colObjects.length;
+                        colorColumnsIndex.push(colorIdx);
+                        allDynamicColumnsIndex.push(colorIdx);
+                        colObjects.push({ data: code + '_color', title: code, width: 220, readOnly: false });
+                        colHeaders.push(code);
 
-                        columns.push({
-                            field: colorField,
-                            title: code,
-                            width: 220,
-                            editor: 'inputEditor'
-                        });
-                        columns.push({
-                            field: processField,
-                            title: 'Process',
-                            width: 220,
-                            editor: 'inputEditor'
-                        });
+                        let processIdx = colObjects.length;
+                        allDynamicColumnsIndex.push(processIdx);
+                        colObjects.push({ data: code + '_process', title: 'Process', width: 220, readOnly: false });
+                        colHeaders.push('Process');
                     });
                 }
 
-                let records = [];
+                let dataSource = [];
                 if (resData.data && resData.data.length > 0) {
-                    records = resData.data.map(item => {
+                    dataSource = resData.data.map(item => {
                         let row = {
                             item_id: item.item_id,
                             part_name: item.part_name || '',
@@ -158,151 +139,241 @@
                             unit: item.unit || ''
                         };
 
-                        colorCodesList.forEach(code => {
-                            let detail = (item.color_details && item.color_details[code]) || {};
-                            row[code + '_color'] = detail.color_desc || '';
-                            row[code + '_process'] = detail.process_desc || '';
-                        });
+                        if (resData.columns) {
+                            resData.columns.forEach(code => {
+                                let detail = (item.color_details && item.color_details[code]) || {};
+                                row[code + '_color'] = detail.color_desc || '';
+                                row[code + '_process'] = detail.process_desc || '';
+                            });
+                        }
                         return row;
                     });
                 }
 
-                const option = {
-                    container: document.getElementById('tableContainer'),
-                    records: records,
-                    columns: columns,
-                    autoWrapText: true,
-                    headerRowHeight: 40,
-                    rowHeight: 35,
-                    frozenColCount: 3,
-                    editCellTrigger: ['dblclick'], // 双击单元格编辑
-                    allowFrozenColResize: true
-                };
+                const container = document.getElementById('bom-table');
+                hotInstance = new Handsontable(container, {
+                    data: dataSource,
+                    columns: colObjects,
+                    colHeaders: colHeaders,
+                    rowHeaders: true,
+                    manualColumnResize: true,
+                    manualRowResize: true,
+                    afterChange: function(changes, source) {
+                        if (source === 'loadData' || !changes) return;
 
-                tableInstance = new VTable.ListTable(option);
+                        changes.forEach(([row, prop, oldValue, newValue]) => {
+                            if (oldValue === newValue) return;
 
-                // 1. 监听单元格修改完成事件，实时同步到 MariaDB 数据库
-                tableInstance.on('change_cell_value', (args) => {
-                    const { col, row, value, oldValue } = args;
-                    if (value === oldValue) return;
+                            const rowData = hotInstance.getSourceDataAtRow(row);
+                            const itemID = rowData.item_id;
+                            if (!itemID) return;
 
-                    const field = columns[col] ? columns[col].field : '';
-                    const record = records[row - 1]; // row 0 为表头
-                    if (!record) return;
+                            let colorCode = "";
+                            let fieldType = "";
 
-                    let colorCode = "";
-                    let fieldType = "";
+                            resData.columns.forEach(code => {
+                                if (prop === code + '_color') {
+                                    colorCode = code;
+                                    fieldType = 'color';
+                                } else if (prop === code + '_process') {
+                                    colorCode = code;
+                                    fieldType = 'process';
+                                }
+                            });
 
-                    if (field.endsWith('_color')) {
-                        colorCode = field.replace('_color', '');
-                        fieldType = 'color';
-                    } else if (field.endsWith('_process')) {
-                        colorCode = field.replace('_process', '');
-                        fieldType = 'process';
-                    }
-
-                    if (colorCode && fieldType) {
-                        fetch('/api/bom/update-cell', {
+                            if (colorCode && fieldType) {
+                                fetch('/api/bom/update-cell', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        item_id: itemID,
+                                        color_code: colorCode,
+                                        field_type: fieldType,
+                                        value: newValue || ''
+                                    })
+                                })
+                                .then(res => res.json())
+                                .then(result => {
+                                    const tip = document.getElementById('status-tip');
+                                    tip.innerText = `✓ 数据库实时同步成功 (物料ID: ${itemID})`;
+                                    setTimeout(() => { tip.innerText = ""; }, 3000);
+                                });
+                            }
+                        });
+                    },
+                    afterRemoveRow: function(index, amount, physicalRows) {
+                        physicalRows.forEach(rowIndex => {
+                            const rowData = hotInstance.getSourceDataAtRow(rowIndex);
+                            if (rowData && rowData.item_id) {
+                                fetch('/api/bom/delete-row', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ item_id: rowData.item_id })
+                                });
+                            }
+                        });
+                    },
+                    afterCreateRow: function(index, amount) {
+                        fetch('/api/bom/add-row', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                item_id: record.item_id,
-                                color_code: colorCode,
-                                field_type: fieldType,
-                                value: value
-                            })
+                            body: JSON.stringify({ part_name: 'NEW PART', material_desc: 'NEW MATERIAL', unit: 'MTR' })
                         })
                         .then(res => res.json())
-                        .then(result => {
-                            const tip = document.getElementById('status-tip');
-                            tip.innerText = `✓ 数据库实时同步成功 (物料ID: ${record.item_id})`;
-                            setTimeout(() => { tip.innerText = ""; }, 3000);
-                        })
-                        .catch(err => {
-                            console.error("单元格实时同步失败:", err);
-                        });
-                    }
-                });
-
-                // 2. 右键单击表头：弹出功能选项（编辑列名、左侧/右侧插入列、删除当前列）并实时同步数据库
-                const containerEl = document.getElementById('tableContainer');
-                containerEl.addEventListener('contextmenu', (e) => {
-                    const cellInfo = tableInstance.getCellAt(e.clientX, e.clientY);
-                    if (cellInfo && cellInfo.row === 0) { // 点击表头行
-                        const col = cellInfo.col;
-                        const field = columns[col] ? columns[col].field : '';
-                        
-                        // 仅允许在动态配色列头或 Process 列头右键
-                        if (field && !['part_name', 'material_desc', 'unit'].includes(field)) {
-                            e.preventDefault();
-                            let currentTitle = columns[col].title;
-                            
-                            let action = prompt(`请选择对列 [${currentTitle}] 的操作：\n1. 编辑列名\n2. 左侧插入列\n3. 右侧插入列\n4. 删除当前列\n\n请输入数字 (1-4):`, "1");
-                            
-                            if (action === "1") {
-                                let newName = prompt(`请输入列 [${currentTitle}] 的新名称：`, currentTitle);
-                                if (newName && newName.trim() !== "" && newName !== currentTitle) {
-                                    let trimmedName = newName.trim();
-                                    
-                                    // 确定关联的配色代码
-                                    let targetCode = currentTitle;
-                                    if (field.endsWith('_process')) {
-                                        targetCode = colorColumnsMap[field.replace('_process', '_color')] || currentTitle;
-                                    }
-
-                                    fetch('/api/bom/update-column', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ old_code: targetCode, new_code: trimmedName })
-                                    })
-                                    .then(res => res.json())
-                                    .then(() => {
-                                        const tip = document.getElementById('status-tip');
-                                        tip.innerText = `✓ 列名已更新并同步至数据库！`;
-                                        setTimeout(() => { location.reload(); }, 1000);
-                                    });
-                                }
-                            } else if (action === "2" || action === "3") {
-                                let newCode = prompt("请输入新配色代码：", "3WH" + Math.floor(Math.random()*90000000+10000000));
-                                if (newCode && newCode.trim() !== "") {
-                                    fetch('/api/bom/add-column', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ color_code: newCode.trim() })
-                                    })
-                                    .then(res => res.json())
-                                    .then(() => { location.reload(); });
-                                }
-                            } else if (action === "4") {
-                                if (confirm(`确定要删除列 [${currentTitle}] 及其关联数据吗？`)) {
-                                    let targetCode = currentTitle;
-                                    if (field.endsWith('_process')) {
-                                        let baseField = field.replace('_process', '_color');
-                                        targetCode = colorColumnsMap[baseField] || currentTitle;
-                                    }
-
-                                    fetch('/api/bom/delete-column', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ color_code: targetCode })
-                                    })
-                                    .then(res => res.json())
-                                    .then(() => { location.reload(); });
-                                }
+                        .then(res => {
+                            if (res.success && res.item_id) {
+                                hotInstance.setDataAtCell(index, 0, 'NEW PART');
+                                hotInstance.setDataAtCell(index, 1, 'NEW MATERIAL');
+                                hotInstance.setDataAtCell(index, 2, 'MTR');
+                                const rowData = hotInstance.getSourceDataAtRow(index);
+                                rowData.item_id = res.item_id;
                             }
-                        }
-                    }
-                });
+                        });
+                    },
+                    contextMenu: {
+                        items: {
+                            "edit_column_name": {
+                                name: '编辑列名',
+                                hidden: function() {
+                                    const selected = hotInstance.getSelectedRange();
+                                    if (!selected || selected.length === 0) return true;
+                                    const col = selected[0].from.col;
+                                    return !allDynamicColumnsIndex.includes(col);
+                                },
+                                callback: function (key, selection) {
+                                    const col = selection[0].start.col;
+                                    const oldName = hotInstance.getColHeader(col);
+                                    const newName = prompt(`请输入列 [${oldName}] 的新名称：`, oldName);
+                                    if (newName && newName.trim() !== "" && newName !== oldName) {
+                                        const trimmedNewName = newName.trim();
+                                        const currentHeaders = [...hotInstance.getColHeader()];
+                                        currentHeaders[col] = trimmedNewName;
+                                        hotInstance.updateSettings({ colHeaders: currentHeaders });
 
+                                        if (colorColumnsIndex.includes(col)) {
+                                            fetch('/api/bom/update-column', {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ old_code: oldName, new_code: trimmedNewName })
+                                            }).then(() => {
+                                                const tip = document.getElementById('status-tip');
+                                                tip.innerText = `✓ 列名已从 [${oldName}] 修改为 [${trimmedNewName}] 并同步至数据库！`;
+                                                setTimeout(() => { tip.innerText = ""; }, 4000);
+                                            });
+                                        }
+                                    }
+                                }
+                            },
+                            "add_column_left": {
+                                name: '左侧插入列',
+                                hidden: function() {
+                                    const selected = hotInstance.getSelectedRange();
+                                    if (!selected || selected.length === 0) return true;
+                                    const col = selected[0].from.col;
+                                    return !allDynamicColumnsIndex.includes(col);
+                                },
+                                callback: function() {
+                                    const newCode = prompt("请输入新列名称：", "3WH" + Math.floor(Math.random()*90000000+10000000));
+                                    if (newCode && newCode.trim() !== "") {
+                                        fetch('/api/bom/add-column', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ color_code: newCode.trim() })
+                                        }).then(() => { location.reload(); });
+                                    }
+                                }
+                            },
+                            "add_column_right": {
+                                name: '右侧插入列',
+                                hidden: function() {
+                                    const selected = hotInstance.getSelectedRange();
+                                    if (!selected || selected.length === 0) return true;
+                                    const col = selected[0].from.col;
+                                    return !allDynamicColumnsIndex.includes(col);
+                                },
+                                callback: function() {
+                                    const newCode = prompt("请输入新列名称：", "3WH" + Math.floor(Math.random()*90000000+10000000));
+                                    if (newCode && newCode.trim() !== "") {
+                                        fetch('/api/bom/add-column', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ color_code: newCode.trim() })
+                                        }).then(() => { location.reload(); });
+                                    }
+                                }
+                            },
+                            "remove_column": {
+                                name: '删除当前列',
+                                hidden: function() {
+                                    const selected = hotInstance.getSelectedRange();
+                                    if (!selected || selected.length === 0) return true;
+                                    const col = selected[0].from.col;
+                                    return !allDynamicColumnsIndex.includes(col);
+                                },
+                                callback: function(key, selection) {
+                                    const col = selection[0].start.col;
+                                    let colName = hotInstance.getColHeader(col);
+                                    if (confirm(`确定要删除列 [${colName}] 及其关联数据吗？`)) {
+                                        let targetCode = colName;
+                                        if (!colorColumnsIndex.includes(col)) {
+                                            targetCode = hotInstance.getColHeader(col - 1);
+                                        }
+                                        fetch('/api/bom/delete-column', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ color_code: targetCode })
+                                        }).then(() => { location.reload(); });
+                                    }
+                                }
+                            },
+                            "row_above": {
+                                name: '上方插入行',
+                                hidden: function() {
+                                    const selected = hotInstance.getSelectedRange();
+                                    if (!selected || selected.length === 0) return false;
+                                    const col = selected[0].from.col;
+                                    return allDynamicColumnsIndex.includes(col);
+                                }
+                            },
+                            "row_below": {
+                                name: '下方插入行',
+                                hidden: function() {
+                                    const selected = hotInstance.getSelectedRange();
+                                    if (!selected || selected.length === 0) return false;
+                                    const col = selected[0].from.col;
+                                    return allDynamicColumnsIndex.includes(col);
+                                }
+                            },
+                            "remove_row": {
+                                name: '删除当前行',
+                                hidden: function() {
+                                    const selected = hotInstance.getSelectedRange();
+                                    if (!selected || selected.length === 0) return false;
+                                    const col = selected[0].from.col;
+                                    return allDynamicColumnsIndex.includes(col);
+                                }
+                            },
+                            "hsep1": "---------",
+                            "undo": { name: '撤销' },
+                            "redo": { name: '重做' },
+                            "copy": { name: '复制' },
+                            "paste": { name: '粘贴' }
+                        }
+                    },
+                    fixedColumnsLeft: 3,
+                    columnHeaderHeight: 40,
+                    height: '100%',
+                    licenseKey: 'non-commercial-and-evaluation'
+                });
             })
             .catch(err => {
                 console.error("加载 BOM 矩阵数据失败:", err);
-                alert("加载 BOM 矩阵数据失败，请检查控制台。");
+                alert("加载 BOM 矩阵数据失败，请按 F12 检查控制台。");
             });
 
         document.getElementById('save-btn').addEventListener('click', () => {
             const tip = document.getElementById('status-tip');
-            tip.innerText = "✓ 所有编辑已实时同步至数据库！";
+            tip.innerText = "✓ 所有整单数据已实时同步至 MariaDB 数据库！";
             setTimeout(() => { tip.innerText = ""; }, 4000);
         });
     </script>

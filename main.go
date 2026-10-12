@@ -13,8 +13,9 @@ import (
 )
 
 func main() {
-	// 1. 加载 .env 配置文件
-	if err := godotenv.Load(); err != nil {
+	// 加载 .env 文件
+	err := godotenv.Load()
+	if err != nil {
 		log.Println("未找到 .env 文件，将尝试读取系统环境变量")
 	}
 
@@ -31,7 +32,6 @@ func main() {
 
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", dbUser, dbPassword, dbHost, dbPort, dbName)
 
-	// 2. 初始化数据库连接
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		log.Fatalf("数据库连接初始化失败: %v", err)
@@ -40,15 +40,14 @@ func main() {
 	if err = db.Ping(); err != nil {
 		log.Fatalf("数据库连接测试失败: %v", err)
 	}
-	fmt.Printf("=== 成功连通 MariaDB 数据库 (%s) ===\n", dbName)
+	fmt.Printf("=== 成功连通 1Panel MariaDB 数据库 (%s) ===\n", dbName)
 
-	// 3. 初始化 Gin 路由
 	r := gin.Default()
 
 	r.Static("/static", "./static")
 	r.StaticFile("/", "./static/index.html")
 
-	// 获取头部基本信息接口
+	// 1. 获取头部基本信息接口
 	r.GET("/api/bom/header", func(c *gin.Context) {
 		row := db.QueryRow("SELECT sample_order_no, sample_type, style_no, style_name, last_no, bottom_no FROM bom_header WHERE id = 1")
 		var orderNo, sampleType, styleNo, styleName, lastNo, bottomNo string
@@ -66,7 +65,7 @@ func main() {
 		})
 	})
 
-	// 获取多配色 BOM 矩阵展开接口
+	// 2. 获取多配色 BOM 矩阵展开接口
 	r.GET("/api/bom/matrix", func(c *gin.Context) {
 		colorRows, err := db.Query("SELECT id, color_code FROM bom_colorway ORDER BY id")
 		if err != nil {
@@ -152,7 +151,7 @@ func main() {
 		})
 	})
 
-	// 修改列名接口
+	// 3. 修改列名接口
 	r.POST("/api/bom/update-column", func(c *gin.Context) {
 		var req struct {
 			OldCode string `json:"old_code"`
@@ -169,10 +168,11 @@ func main() {
 			return
 		}
 
+		fmt.Printf("✓ 数据库同步成功: 配色列名从 [%s] 修改为 [%s]\n", req.OldCode, req.NewCode)
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	// 新增列接口
+	// 4. 新增列接口
 	r.POST("/api/bom/add-column", func(c *gin.Context) {
 		var req struct {
 			ColorCode string `json:"color_code"`
@@ -196,10 +196,11 @@ func main() {
 			SELECT id, ?, '', '' FROM bom_item
 		`, colorwayID)
 
+		fmt.Printf("✓ 数据库同步成功: 新增配色列 [%s]\n", req.ColorCode)
 		c.JSON(http.StatusOK, gin.H{"success": true, "colorway_id": colorwayID})
 	})
 
-	// 删除列接口
+	// 5. 删除列接口
 	r.POST("/api/bom/delete-column", func(c *gin.Context) {
 		var req struct {
 			ColorCode string `json:"color_code"`
@@ -216,10 +217,11 @@ func main() {
 			_, _ = db.Exec("DELETE FROM bom_colorway WHERE id = ?", colorwayID)
 		}
 
+		fmt.Printf("✓ 数据库同步成功: 删除配色列 [%s]\n", req.ColorCode)
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	// 单元格实时修改接口
+	// 6. 单元格实时修改接口
 	r.POST("/api/bom/update-cell", func(c *gin.Context) {
 		var req struct {
 			ItemID    int    `json:"item_id"`
@@ -255,6 +257,53 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"success": true})
 	})
 
-	fmt.Printf("=== 后端服务已成功启动，正在监听端口 %s ===\n", serverPort)
+	// 7. 新增行接口
+	r.POST("/api/bom/add-row", func(c *gin.Context) {
+		var req struct {
+			PartName     string `json:"part_name"`
+			MaterialDesc string `json:"material_desc"`
+			Unit         string `json:"unit"`
+		}
+		if err := c.BindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		res, err := db.Exec("INSERT INTO bom_item (part_id, material_desc, unit) VALUES (1, ?, ?)", req.MaterialDesc, req.Unit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "新增行失败: " + err.Error()})
+			return
+		}
+
+		itemID64, _ := res.LastInsertId()
+		itemID := int(itemID64)
+
+		_, _ = db.Exec(`
+			INSERT INTO bom_item_color_detail (bom_item_id, colorway_id, material_color_spec, process_desc)
+			SELECT ?, id, '', '' FROM bom_colorway
+		`, itemID)
+
+		fmt.Printf("✓ 数据库同步成功: 新增物料行 ID=%d\n", itemID)
+		c.JSON(http.StatusOK, gin.H{"success": true, "item_id": itemID})
+	})
+
+	// 8. 删除行接口
+	r.POST("/api/bom/delete-row", func(c *gin.Context) {
+		var req struct {
+			ItemID int `json:"item_id"`
+		}
+		if err := c.BindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		_, _ = db.Exec("DELETE FROM bom_item_color_detail WHERE bom_item_id = ?", req.ItemID)
+		_, _ = db.Exec("DELETE FROM bom_item WHERE id = ?", req.ItemID)
+
+		fmt.Printf("✓ 数据库同步成功: 删除物料行 ID=%d\n", req.ItemID)
+		c.JSON(http.StatusOK, gin.H{"success": true})
+	})
+
+	fmt.Printf("=== Go 后端服务已启动，正在监听 %s ===\n", serverPort)
 	r.Run(serverPort)
 }

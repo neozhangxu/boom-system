@@ -53,8 +53,8 @@ bom-system/
 * **配置管理**：`github.com/joho/godotenv`（安全读取 `.env` 环境变量）
 * **数据库驱动**：`github.com/go-sql-driver/mysql`（连接 MariaDB）
 
-### 2. 前端 (VTable)
-* **表格内核**：`VTable`（提供媲美 Excel 的虚拟滚动、列宽拖拽、复制粘贴、单元格选区体验）
+### 2. 前端 (Handsontable)
+* **表格内核**：`Handsontable`（提供媲美 Excel 的虚拟滚动、列宽拖拽、复制粘贴、单元格选区体验）
 * **样式与交互**：HTML5 / CSS3 / 原生 JavaScript (`fetch` 异步通信)
 
 ---
