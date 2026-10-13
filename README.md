@@ -12,7 +12,7 @@
 ┌────────────────────────┐         HTTP / RESTful API         ┌────────────────────────┐
 │                        │ ─────────────────────────────────> │                        │
 │   Frontend (Browser)   │                                    │   Backend (Go / Gin)   │
-│   - Handsontable       │ <───────────────────────────────── │   - /api/bom/header    │
+│   - VTable             │ <───────────────────────────────── │   - /api/bom/header    │
 │   - 智能右键菜单       │            JSON Response           │   - /api/bom/matrix    │
 │   - 实时双向同步       │                                    │   - /api/update-cell   │
 └────────────────────────┘                                    └────────────────────────┘
@@ -40,7 +40,7 @@ bom-system/
 ├── go.sum                # Go 依赖校验和锁文件
 ├── main.go               # Go 后端主程序（Gin 路由转发、环境变量加载、数据库操作）
 └── static/
-    └── index.html        # 前端页面（集成 Handsontable 电子表格、样式渲染及交互逻辑）
+    └── index.html        # 前端页面（集成 VTable 表格、样式渲染及交互逻辑）
 ```
 
 ---
@@ -53,8 +53,9 @@ bom-system/
 * **配置管理**：`github.com/joho/godotenv`（安全读取 `.env` 环境变量）
 * **数据库驱动**：`github.com/go-sql-driver/mysql`（连接 MariaDB）
 
-### 2. 前端 (Handsontable)
-* **表格内核**：`Handsontable`（提供媲美 Excel 的虚拟滚动、列宽拖拽、复制粘贴、单元格选区体验）
+### 2. 前端 (VTable)
+* **表格内核**：`@visactor/vtable`（支持动态多配色矩阵、冻结基础列、列宽/行高调整、单元格编辑与剪贴板操作）
+* **单元格编辑器**：`@visactor/vtable-editors`
 * **样式与交互**：HTML5 / CSS3 / 原生 JavaScript (`fetch` 异步通信)
 
 ---

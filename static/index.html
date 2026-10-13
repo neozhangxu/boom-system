@@ -2,9 +2,9 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>PRO WELL (VIETNAM) CO.,LTD - 鞋款多配色 BOM 展开矩阵 (.env 配置版)</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.css" />
-    <script src="https://cdn.jsdelivr.net/npm/handsontable/dist/handsontable.full.min.js"></script>
+    <title>PRO WELL (VIETNAM) CO.,LTD - 鞋款多配色 BOM 展开矩阵 (VTable)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@visactor/vtable@latest/dist/vtable.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@visactor/vtable-editors@latest/dist/vtable-editors.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 15px; background-color: #f4f6f9; color: #333; font-size: 13px; }
         .bom-container { background: #fff; padding: 20px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 98%; margin: 0 auto; }
@@ -89,7 +89,12 @@
     </div>
 
     <script>
-        let hotInstance = null;
+        let tableInstance = null;
+        const undoStack = [];
+        const redoStack = [];
+        let clipboardValue = '';
+        let hasClipboardValue = false;
+        let applyingHistory = false;
 
         fetch('/api/bom/header')
             .then(res => res.json())
@@ -104,271 +109,284 @@
         fetch('/api/bom/matrix')
             .then(res => res.json())
             .then(resData => {
-                let colObjects = [
-                    { data: 'part_name', title: 'Parts (部件)', width: 140, readOnly: true },
-                    { data: 'material_desc', title: 'Material Description', width: 320, readOnly: false },
-                    { data: 'unit', title: 'Unit', width: 70, readOnly: false }
+                const inputEditor = new VTable.editors.InputEditor();
+
+                const colorCodes = resData.columns || [];
+                const columns = [
+                    { field: 'part_name', title: 'Parts (部件)', width: 140 },
+                    { field: 'material_desc', title: 'Material Description', width: 320, editor: inputEditor },
+                    { field: 'unit', title: 'Unit', width: 70, editor: inputEditor }
                 ];
+                colorCodes.forEach(code => {
+                    columns.push(
+                        { field: code + '_color', title: code, width: 220, editor: inputEditor },
+                        { field: code + '_process', title: 'Process', width: 220, editor: inputEditor }
+                    );
+                });
 
-                let colHeaders = ['Parts (部件)', 'Material Description', 'Unit'];
-                let colorColumnsIndex = [];
-                let allDynamicColumnsIndex = [];
-
-                if (resData.columns && resData.columns.length > 0) {
-                    resData.columns.forEach(code => {
-                        let colorIdx = colObjects.length;
-                        colorColumnsIndex.push(colorIdx);
-                        allDynamicColumnsIndex.push(colorIdx);
-                        colObjects.push({ data: code + '_color', title: code, width: 220, readOnly: false });
-                        colHeaders.push(code);
-
-                        let processIdx = colObjects.length;
-                        allDynamicColumnsIndex.push(processIdx);
-                        colObjects.push({ data: code + '_process', title: 'Process', width: 220, readOnly: false });
-                        colHeaders.push('Process');
+                const records = (resData.data || []).map(item => {
+                    const record = {
+                        item_id: item.item_id,
+                        part_name: item.part_name || '',
+                        material_desc: item.material_desc || '',
+                        unit: item.unit || ''
+                    };
+                    colorCodes.forEach(code => {
+                        const detail = (item.color_details && item.color_details[code]) || {};
+                        record[code + '_color'] = detail.color_desc || '';
+                        record[code + '_process'] = detail.process_desc || '';
                     });
-                }
+                    return record;
+                });
 
-                let dataSource = [];
-                if (resData.data && resData.data.length > 0) {
-                    dataSource = resData.data.map(item => {
-                        let row = {
-                            item_id: item.item_id,
-                            part_name: item.part_name || '',
-                            material_desc: item.material_desc || '',
-                            unit: item.unit || ''
-                        };
+                const tip = document.getElementById('status-tip');
+                const showTip = (message, isError = false) => {
+                    tip.innerText = message;
+                    tip.style.color = isError ? '#dc2626' : '';
+                    if (!isError) setTimeout(() => { tip.innerText = ''; }, 4000);
+                };
+                const postJSON = async (url, body) => {
+                    const response = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(body)
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || `请求失败 (${response.status})`);
+                    return result;
+                };
+                const reloadAfter = async (url, body) => {
+                    await postJSON(url, body);
+                    location.reload();
+                };
+                const dynamicColumn = col => col >= 3 && col < columns.length;
+                const getRowIndex = cell => cell.row - 1;
+                const getRecord = cell => tableInstance.getCellOriginRecord(cell.col, cell.row);
 
-                        if (resData.columns) {
-                            resData.columns.forEach(code => {
-                                let detail = (item.color_details && item.color_details[code]) || {};
-                                row[code + '_color'] = detail.color_desc || '';
-                                row[code + '_process'] = detail.process_desc || '';
-                            });
+                tableInstance = new VTable.ListTable({
+                    container: document.getElementById('bom-table'),
+                    records,
+                    columns,
+                    autoWrapText: true,
+                    headerRowHeight: 40,
+                    rowHeight: 35,
+                    frozenColCount: 3,
+                    editCellTrigger: ['dblclick'],
+                    resize: {
+                        columnResizeType: 'all',
+                        rowResizeType: 'all',
+                        rowResizeMode: 'all'
+                    },
+                    keyboardOptions: {
+                        copySelected: true,
+                        pasteValueToCell: true
+                    }
+                });
+
+                tableInstance.on('change_cell_value', args => {
+                    const { col, row, value, oldValue } = args;
+                    if (value === oldValue) return;
+
+                    const field = columns[col] && columns[col].field;
+                    const record = getRecord({ col, row });
+                    if (!record || !record.item_id || !field) return;
+
+                    if (!applyingHistory) {
+                        undoStack.push({ itemID: record.item_id, col, oldValue, value });
+                        redoStack.length = 0;
+                    }
+
+                    let colorCode = '';
+                    let fieldType = '';
+                    if (field.endsWith('_color')) {
+                        colorCode = field.slice(0, -'_color'.length);
+                        fieldType = 'color';
+                    } else if (field.endsWith('_process')) {
+                        colorCode = field.slice(0, -'_process'.length);
+                        fieldType = 'process';
+                    }
+                    if (!colorCode || !fieldType) return;
+
+                    postJSON('/api/bom/update-cell', {
+                        item_id: record.item_id,
+                        color_code: colorCode,
+                        field_type: fieldType,
+                        value: value || ''
+                    })
+                    .then(() => showTip(`✓ 数据库实时同步成功 (物料ID: ${record.item_id})`))
+                    .catch(err => {
+                        console.error('单元格实时同步失败:', err);
+                        showTip(`单元格同步失败：${err.message}`, true);
+                    });
+                });
+
+                const copyCell = async cell => {
+                    clipboardValue = String(tableInstance.getCellValue(cell.col, cell.row) ?? '');
+                    hasClipboardValue = true;
+                    if (navigator.clipboard && window.isSecureContext) {
+                        await navigator.clipboard.writeText(clipboardValue);
+                    }
+                    showTip('✓ 已复制单元格');
+                };
+                const pasteCell = async cell => {
+                    if (navigator.clipboard && window.isSecureContext) {
+                        try {
+                            clipboardValue = await navigator.clipboard.readText();
+                            hasClipboardValue = true;
+                        } catch (err) {
+                            if (!hasClipboardValue) throw err;
                         }
-                        return row;
-                    });
-                }
+                    }
+                    if (!hasClipboardValue) {
+                        showTip('剪贴板没有可粘贴的内容', true);
+                        return;
+                    }
+                    tableInstance.changeCellValue(cell.col, cell.row, clipboardValue);
+                };
+                const applyHistory = (from, to, value) => {
+                    const change = from.pop();
+                    if (!change) return;
+                    const rowIndex = records.findIndex(record => record.item_id === change.itemID);
+                    if (rowIndex < 0) {
+                        from.push(change);
+                        showTip('无法撤销：对应物料行已不存在', true);
+                        return;
+                    }
+                    applyingHistory = true;
+                    try {
+                        tableInstance.changeCellValue(change.col, rowIndex + 1, value(change));
+                    } finally {
+                        applyingHistory = false;
+                    }
+                    to.push(change);
+                };
 
-                const container = document.getElementById('bom-table');
-                hotInstance = new Handsontable(container, {
-                    data: dataSource,
-                    columns: colObjects,
-                    colHeaders: colHeaders,
-                    rowHeaders: true,
-                    manualColumnResize: true,
-                    manualRowResize: true,
-                    afterChange: function(changes, source) {
-                        if (source === 'loadData' || !changes) return;
+                document.getElementById('bom-table').addEventListener('contextmenu', async event => {
+                    const cell = tableInstance.getCellAt(event.clientX, event.clientY);
+                    if (!cell) return;
 
-                        changes.forEach(([row, prop, oldValue, newValue]) => {
-                            if (oldValue === newValue) return;
+                    if (cell.row === 0 && dynamicColumn(cell.col)) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const column = columns[cell.col];
+                        const oldTitle = column.title;
+                        const action = prompt(`请选择对列 [${oldTitle}] 的操作：\n1. 编辑列名\n2. 左侧插入列\n3. 右侧插入列\n4. 删除当前列\n\n请输入数字 (1-4):`, '1');
+                        if (action === '1') {
+                            const newTitle = prompt(`请输入列 [${oldTitle}] 的新名称：`, oldTitle);
+                            if (!newTitle || !newTitle.trim() || newTitle.trim() === oldTitle) return;
 
-                            const rowData = hotInstance.getSourceDataAtRow(row);
-                            const itemID = rowData.item_id;
-                            if (!itemID) return;
-
-                            let colorCode = "";
-                            let fieldType = "";
-
-                            resData.columns.forEach(code => {
-                                if (prop === code + '_color') {
-                                    colorCode = code;
-                                    fieldType = 'color';
-                                } else if (prop === code + '_process') {
-                                    colorCode = code;
-                                    fieldType = 'process';
-                                }
-                            });
-
-                            if (colorCode && fieldType) {
-                                fetch('/api/bom/update-cell', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        item_id: itemID,
-                                        color_code: colorCode,
-                                        field_type: fieldType,
-                                        value: newValue || ''
+                            const trimmedTitle = newTitle.trim();
+                            column.title = trimmedTitle;
+                            tableInstance.updateColumns(columns);
+                            if (column.field.endsWith('_color')) {
+                                const colorCode = column.field.slice(0, -'_color'.length);
+                                postJSON('/api/bom/update-column', { old_code: colorCode, new_code: trimmedTitle })
+                                    .then(() => {
+                                        showTip(`✓ 列名已从 [${colorCode}] 修改为 [${trimmedTitle}] 并同步至数据库！`);
+                                        setTimeout(() => location.reload(), 1000);
                                     })
-                                })
-                                .then(res => res.json())
-                                .then(result => {
-                                    const tip = document.getElementById('status-tip');
-                                    tip.innerText = `✓ 数据库实时同步成功 (物料ID: ${itemID})`;
-                                    setTimeout(() => { tip.innerText = ""; }, 3000);
+                                    .catch(err => {
+                                        column.title = oldTitle;
+                                        tableInstance.updateColumns(columns);
+                                        console.error('列名同步失败:', err);
+                                        showTip(`列名同步失败：${err.message}`, true);
+                                    });
+                            }
+                        } else if (action === '2' || action === '3') {
+                            const colorCode = prompt('请输入新列名称：', `3WH${Math.floor(Math.random() * 90000000 + 10000000)}`);
+                            if (colorCode && colorCode.trim()) {
+                                reloadAfter('/api/bom/add-column', { color_code: colorCode.trim() })
+                                    .catch(err => {
+                                        console.error('新增配色列失败:', err);
+                                        showTip(`新增配色列失败：${err.message}`, true);
+                                    });
+                            }
+                        } else if (action === '4') {
+                            if (!confirm(`确定要删除列 [${oldTitle}] 及其关联数据吗？`)) return;
+                            const colorCode = column.field.endsWith('_process')
+                                ? column.field.slice(0, -'_process'.length)
+                                : column.field.slice(0, -'_color'.length);
+                            reloadAfter('/api/bom/delete-column', { color_code: colorCode })
+                                .catch(err => {
+                                    console.error('删除配色列失败:', err);
+                                    showTip(`删除配色列失败：${err.message}`, true);
                                 });
-                            }
-                        });
-                    },
-                    afterRemoveRow: function(index, amount, physicalRows) {
-                        physicalRows.forEach(rowIndex => {
-                            const rowData = hotInstance.getSourceDataAtRow(rowIndex);
-                            if (rowData && rowData.item_id) {
-                                fetch('/api/bom/delete-row', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ item_id: rowData.item_id })
-                                });
-                            }
-                        });
-                    },
-                    afterCreateRow: function(index, amount) {
-                        fetch('/api/bom/add-row', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ part_name: 'NEW PART', material_desc: 'NEW MATERIAL', unit: 'MTR' })
-                        })
-                        .then(res => res.json())
-                        .then(res => {
-                            if (res.success && res.item_id) {
-                                hotInstance.setDataAtCell(index, 0, 'NEW PART');
-                                hotInstance.setDataAtCell(index, 1, 'NEW MATERIAL');
-                                hotInstance.setDataAtCell(index, 2, 'MTR');
-                                const rowData = hotInstance.getSourceDataAtRow(index);
-                                rowData.item_id = res.item_id;
-                            }
-                        });
-                    },
-                    contextMenu: {
-                        items: {
-                            "edit_column_name": {
-                                name: '编辑列名',
-                                hidden: function() {
-                                    const selected = hotInstance.getSelectedRange();
-                                    if (!selected || selected.length === 0) return true;
-                                    const col = selected[0].from.col;
-                                    return !allDynamicColumnsIndex.includes(col);
-                                },
-                                callback: function (key, selection) {
-                                    const col = selection[0].start.col;
-                                    const oldName = hotInstance.getColHeader(col);
-                                    const newName = prompt(`请输入列 [${oldName}] 的新名称：`, oldName);
-                                    if (newName && newName.trim() !== "" && newName !== oldName) {
-                                        const trimmedNewName = newName.trim();
-                                        const currentHeaders = [...hotInstance.getColHeader()];
-                                        currentHeaders[col] = trimmedNewName;
-                                        hotInstance.updateSettings({ colHeaders: currentHeaders });
-
-                                        if (colorColumnsIndex.includes(col)) {
-                                            fetch('/api/bom/update-column', {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({ old_code: oldName, new_code: trimmedNewName })
-                                            }).then(() => {
-                                                const tip = document.getElementById('status-tip');
-                                                tip.innerText = `✓ 列名已从 [${oldName}] 修改为 [${trimmedNewName}] 并同步至数据库！`;
-                                                setTimeout(() => { tip.innerText = ""; }, 4000);
-                                            });
-                                        }
-                                    }
-                                }
-                            },
-                            "add_column_left": {
-                                name: '左侧插入列',
-                                hidden: function() {
-                                    const selected = hotInstance.getSelectedRange();
-                                    if (!selected || selected.length === 0) return true;
-                                    const col = selected[0].from.col;
-                                    return !allDynamicColumnsIndex.includes(col);
-                                },
-                                callback: function() {
-                                    const newCode = prompt("请输入新列名称：", "3WH" + Math.floor(Math.random()*90000000+10000000));
-                                    if (newCode && newCode.trim() !== "") {
-                                        fetch('/api/bom/add-column', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ color_code: newCode.trim() })
-                                        }).then(() => { location.reload(); });
-                                    }
-                                }
-                            },
-                            "add_column_right": {
-                                name: '右侧插入列',
-                                hidden: function() {
-                                    const selected = hotInstance.getSelectedRange();
-                                    if (!selected || selected.length === 0) return true;
-                                    const col = selected[0].from.col;
-                                    return !allDynamicColumnsIndex.includes(col);
-                                },
-                                callback: function() {
-                                    const newCode = prompt("请输入新列名称：", "3WH" + Math.floor(Math.random()*90000000+10000000));
-                                    if (newCode && newCode.trim() !== "") {
-                                        fetch('/api/bom/add-column', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ color_code: newCode.trim() })
-                                        }).then(() => { location.reload(); });
-                                    }
-                                }
-                            },
-                            "remove_column": {
-                                name: '删除当前列',
-                                hidden: function() {
-                                    const selected = hotInstance.getSelectedRange();
-                                    if (!selected || selected.length === 0) return true;
-                                    const col = selected[0].from.col;
-                                    return !allDynamicColumnsIndex.includes(col);
-                                },
-                                callback: function(key, selection) {
-                                    const col = selection[0].start.col;
-                                    let colName = hotInstance.getColHeader(col);
-                                    if (confirm(`确定要删除列 [${colName}] 及其关联数据吗？`)) {
-                                        let targetCode = colName;
-                                        if (!colorColumnsIndex.includes(col)) {
-                                            targetCode = hotInstance.getColHeader(col - 1);
-                                        }
-                                        fetch('/api/bom/delete-column', {
-                                            method: 'POST',
-                                            headers: { 'Content-Type': 'application/json' },
-                                            body: JSON.stringify({ color_code: targetCode })
-                                        }).then(() => { location.reload(); });
-                                    }
-                                }
-                            },
-                            "row_above": {
-                                name: '上方插入行',
-                                hidden: function() {
-                                    const selected = hotInstance.getSelectedRange();
-                                    if (!selected || selected.length === 0) return false;
-                                    const col = selected[0].from.col;
-                                    return allDynamicColumnsIndex.includes(col);
-                                }
-                            },
-                            "row_below": {
-                                name: '下方插入行',
-                                hidden: function() {
-                                    const selected = hotInstance.getSelectedRange();
-                                    if (!selected || selected.length === 0) return false;
-                                    const col = selected[0].from.col;
-                                    return allDynamicColumnsIndex.includes(col);
-                                }
-                            },
-                            "remove_row": {
-                                name: '删除当前行',
-                                hidden: function() {
-                                    const selected = hotInstance.getSelectedRange();
-                                    if (!selected || selected.length === 0) return false;
-                                    const col = selected[0].from.col;
-                                    return allDynamicColumnsIndex.includes(col);
-                                }
-                            },
-                            "hsep1": "---------",
-                            "undo": { name: '撤销' },
-                            "redo": { name: '重做' },
-                            "copy": { name: '复制' },
-                            "paste": { name: '粘贴' }
                         }
-                    },
-                    fixedColumnsLeft: 3,
-                    columnHeaderHeight: 40,
-                    height: '100%',
-                    licenseKey: 'non-commercial-and-evaluation'
+                        return;
+                    }
+
+                    if (cell.row === 0) return;
+                    const rowIndex = getRowIndex(cell);
+                    if (rowIndex < 0) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const actions = dynamicColumn(cell.col)
+                        ? '1. 复制单元格\n2. 粘贴到单元格\n3. 撤销\n4. 重做'
+                        : '1. 上方插入行\n2. 下方插入行\n3. 删除当前行\n4. 复制单元格\n5. 粘贴到单元格\n6. 撤销\n7. 重做';
+                    const action = prompt(`请选择操作：\n${actions}\n\n请输入数字:`, '1');
+                    if (dynamicColumn(cell.col)) {
+                        try {
+                            if (action === '1') await copyCell(cell);
+                            else if (action === '2') await pasteCell(cell);
+                            else if (action === '3') applyHistory(undoStack, redoStack, change => change.oldValue);
+                            else if (action === '4') applyHistory(redoStack, undoStack, change => change.value);
+                        } catch (err) {
+                            console.error('单元格剪贴板操作失败:', err);
+                            showTip(`剪贴板操作失败：${err.message}`, true);
+                        }
+                        return;
+                    }
+                    if (action === '1' || action === '2') {
+                        const insertAt = rowIndex + (action === '2' ? 1 : 0);
+                        try {
+                            const result = await postJSON('/api/bom/add-row', {
+                                part_name: 'NEW PART',
+                                material_desc: 'NEW MATERIAL',
+                                unit: 'MTR'
+                            });
+                            if (!result.success || !result.item_id) throw new Error('新增物料接口未返回物料编号');
+                            const newRecord = {
+                                item_id: result.item_id,
+                                part_name: 'NEW PART',
+                                material_desc: 'NEW MATERIAL',
+                                unit: 'MTR',
+                                ...Object.fromEntries(colorCodes.flatMap(code => [[code + '_color', ''], [code + '_process', '']]))
+                            };
+                            tableInstance.addRecord(newRecord, insertAt);
+                            records.splice(insertAt, 0, newRecord);
+                        } catch (err) {
+                            console.error('新增物料行失败:', err);
+                            showTip(`新增物料行失败：${err.message}`, true);
+                        }
+                    } else if (action === '3') {
+                        const record = getRecord(cell);
+                        if (!record || !record.item_id || !confirm('确定要删除当前物料行及其关联明细吗？')) return;
+                        try {
+                            await postJSON('/api/bom/delete-row', { item_id: record.item_id });
+                            tableInstance.deleteRecords([rowIndex]);
+                            records.splice(rowIndex, 1);
+                        } catch (err) {
+                            console.error('删除物料行失败:', err);
+                            showTip(`删除物料行失败：${err.message}`, true);
+                        }
+                    } else if (action === '4' || action === '5') {
+                        try {
+                            if (action === '4') await copyCell(cell);
+                            else await pasteCell(cell);
+                        } catch (err) {
+                            console.error('单元格剪贴板操作失败:', err);
+                            showTip(`剪贴板操作失败：${err.message}`, true);
+                        }
+                    } else if (action === '6') {
+                        applyHistory(undoStack, redoStack, change => change.oldValue);
+                    } else if (action === '7') {
+                        applyHistory(redoStack, undoStack, change => change.value);
+                    }
                 });
             })
             .catch(err => {
                 console.error("加载 BOM 矩阵数据失败:", err);
-                alert("加载 BOM 矩阵数据失败，请按 F12 检查控制台。");
+                alert(`加载 BOM 矩阵数据失败：${err.message || err}，请按 F12 检查控制台。`);
             });
 
         document.getElementById('save-btn').addEventListener('click', () => {
