@@ -22,6 +22,9 @@
         .excel-footer td:focus { background: #eef4ff; }
 
         #bom-table { width: 100%; height: 600px; margin-bottom: 15px; border: 1px solid #ccc; }
+        #bom-context-menu { position: fixed; z-index: 10000; display: none; min-width: 170px; padding: 4px; background: #fff; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+        #bom-context-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 4px; background: transparent; color: #222; text-align: left; font: inherit; cursor: pointer; white-space: nowrap; }
+        #bom-context-menu button:hover { background: #eff6ff; color: #1d4ed8; }
         
         .toolbar { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
         .btn { padding: 6px 14px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
@@ -171,7 +174,7 @@
                     headerRowHeight: 40,
                     rowHeight: 35,
                     frozenColCount: 3,
-                    editCellTrigger: ['dblclick'],
+                    editCellTrigger: ['click'],
                     resize: {
                         columnResizeType: 'all',
                         rowResizeType: 'all',
@@ -261,17 +264,60 @@
                     to.push(change);
                 };
 
-                document.getElementById('bom-table').addEventListener('contextmenu', async event => {
+                const contextMenu = document.createElement('div');
+                contextMenu.id = 'bom-context-menu';
+                contextMenu.setAttribute('role', 'menu');
+                document.body.appendChild(contextMenu);
+
+                const hideContextMenu = () => {
+                    contextMenu.style.display = 'none';
+                    contextMenu.replaceChildren();
+                };
+                const showContextMenu = (event, actions) => {
+                    contextMenu.replaceChildren();
+                    actions.forEach(({ label, run }) => {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.setAttribute('role', 'menuitem');
+                        button.textContent = label;
+                        button.addEventListener('click', async () => {
+                            hideContextMenu();
+                            try {
+                                await run();
+                            } catch (err) {
+                                console.error('右键菜单操作失败:', err);
+                                showTip(`操作失败：${err.message}`, true);
+                            }
+                        });
+                        contextMenu.appendChild(button);
+                    });
+                    contextMenu.style.display = 'block';
+                    const menuRect = contextMenu.getBoundingClientRect();
+                    contextMenu.style.left = `${Math.max(0, Math.min(event.clientX, window.innerWidth - menuRect.width))}px`;
+                    contextMenu.style.top = `${Math.max(0, Math.min(event.clientY, window.innerHeight - menuRect.height))}px`;
+                };
+
+                document.addEventListener('pointerdown', event => {
+                    if (!contextMenu.contains(event.target)) hideContextMenu();
+                });
+                document.addEventListener('keydown', event => {
+                    if (event.key === 'Escape') hideContextMenu();
+                });
+                window.addEventListener('resize', hideContextMenu);
+
+                document.getElementById('bom-table').addEventListener('contextmenu', event => {
                     const cell = tableInstance.getCellAt(event.clientX, event.clientY);
                     if (!cell) return;
+                    event.preventDefault();
+                    event.stopPropagation();
 
                     if (cell.row === 0 && dynamicColumn(cell.col)) {
-                        event.preventDefault();
-                        event.stopPropagation();
                         const column = columns[cell.col];
                         const oldTitle = column.title;
-                        const action = prompt(`请选择对列 [${oldTitle}] 的操作：\n1. 编辑列名\n2. 左侧插入列\n3. 右侧插入列\n4. 删除当前列\n\n请输入数字 (1-4):`, '1');
-                        if (action === '1') {
+                        showContextMenu(event, [
+                            {
+                                label: '编辑列名',
+                                run: async () => {
                             const newTitle = prompt(`请输入列 [${oldTitle}] 的新名称：`, oldTitle);
                             if (!newTitle || !newTitle.trim() || newTitle.trim() === oldTitle) return;
 
@@ -292,96 +338,110 @@
                                         showTip(`列名同步失败：${err.message}`, true);
                                     });
                             }
-                        } else if (action === '2' || action === '3') {
-                            const colorCode = prompt('请输入新列名称：', `3WH${Math.floor(Math.random() * 90000000 + 10000000)}`);
-                            if (colorCode && colorCode.trim()) {
-                                reloadAfter('/api/bom/add-column', { color_code: colorCode.trim() })
-                                    .catch(err => {
-                                        console.error('新增配色列失败:', err);
-                                        showTip(`新增配色列失败：${err.message}`, true);
-                                    });
+                                }
+                            },
+                            {
+                                label: '左侧插入列',
+                                run: async () => {
+                                    const colorCode = prompt('请输入新列名称：', `3WH${Math.floor(Math.random() * 90000000 + 10000000)}`);
+                                    if (colorCode && colorCode.trim()) {
+                                        await reloadAfter('/api/bom/add-column', { color_code: colorCode.trim() });
+                                    }
+                                }
+                            },
+                            {
+                                label: '右侧插入列',
+                                run: async () => {
+                                    const colorCode = prompt('请输入新列名称：', `3WH${Math.floor(Math.random() * 90000000 + 10000000)}`);
+                                    if (colorCode && colorCode.trim()) {
+                                        await reloadAfter('/api/bom/add-column', { color_code: colorCode.trim() });
+                                    }
+                                }
+                            },
+                            {
+                                label: '删除当前列',
+                                run: async () => {
+                                    if (!confirm(`确定要删除列 [${oldTitle}] 及其关联数据吗？`)) return;
+                                    const colorCode = column.field.endsWith('_process')
+                                        ? column.field.slice(0, -'_process'.length)
+                                        : column.field.slice(0, -'_color'.length);
+                                    await reloadAfter('/api/bom/delete-column', { color_code: colorCode });
+                                }
                             }
-                        } else if (action === '4') {
-                            if (!confirm(`确定要删除列 [${oldTitle}] 及其关联数据吗？`)) return;
-                            const colorCode = column.field.endsWith('_process')
-                                ? column.field.slice(0, -'_process'.length)
-                                : column.field.slice(0, -'_color'.length);
-                            reloadAfter('/api/bom/delete-column', { color_code: colorCode })
-                                .catch(err => {
-                                    console.error('删除配色列失败:', err);
-                                    showTip(`删除配色列失败：${err.message}`, true);
-                                });
-                        }
+                        ]);
                         return;
                     }
 
-                    if (cell.row === 0) return;
-                    const rowIndex = getRowIndex(cell);
-                    if (rowIndex < 0) return;
-                    event.preventDefault();
-                    event.stopPropagation();
-                    const actions = dynamicColumn(cell.col)
-                        ? '1. 复制单元格\n2. 粘贴到单元格\n3. 撤销\n4. 重做'
-                        : '1. 上方插入行\n2. 下方插入行\n3. 删除当前行\n4. 复制单元格\n5. 粘贴到单元格\n6. 撤销\n7. 重做';
-                    const action = prompt(`请选择操作：\n${actions}\n\n请输入数字:`, '1');
-                    if (dynamicColumn(cell.col)) {
-                        try {
-                            if (action === '1') await copyCell(cell);
-                            else if (action === '2') await pasteCell(cell);
-                            else if (action === '3') applyHistory(undoStack, redoStack, change => change.oldValue);
-                            else if (action === '4') applyHistory(redoStack, undoStack, change => change.value);
-                        } catch (err) {
-                            console.error('单元格剪贴板操作失败:', err);
-                            showTip(`剪贴板操作失败：${err.message}`, true);
-                        }
+                    if (cell.row === 0) {
+                        hideContextMenu();
                         return;
                     }
-                    if (action === '1' || action === '2') {
-                        const insertAt = rowIndex + (action === '2' ? 1 : 0);
-                        try {
-                            const result = await postJSON('/api/bom/add-row', {
-                                part_name: 'NEW PART',
-                                material_desc: 'NEW MATERIAL',
-                                unit: 'MTR'
-                            });
-                            if (!result.success || !result.item_id) throw new Error('新增物料接口未返回物料编号');
-                            const newRecord = {
-                                item_id: result.item_id,
-                                part_name: 'NEW PART',
-                                material_desc: 'NEW MATERIAL',
-                                unit: 'MTR',
-                                ...Object.fromEntries(colorCodes.flatMap(code => [[code + '_color', ''], [code + '_process', '']]))
-                            };
-                            tableInstance.addRecord(newRecord, insertAt);
-                            records.splice(insertAt, 0, newRecord);
-                        } catch (err) {
-                            console.error('新增物料行失败:', err);
-                            showTip(`新增物料行失败：${err.message}`, true);
-                        }
-                    } else if (action === '3') {
-                        const record = getRecord(cell);
-                        if (!record || !record.item_id || !confirm('确定要删除当前物料行及其关联明细吗？')) return;
-                        try {
-                            await postJSON('/api/bom/delete-row', { item_id: record.item_id });
-                            tableInstance.deleteRecords([rowIndex]);
-                            records.splice(rowIndex, 1);
-                        } catch (err) {
-                            console.error('删除物料行失败:', err);
-                            showTip(`删除物料行失败：${err.message}`, true);
-                        }
-                    } else if (action === '4' || action === '5') {
-                        try {
-                            if (action === '4') await copyCell(cell);
-                            else await pasteCell(cell);
-                        } catch (err) {
-                            console.error('单元格剪贴板操作失败:', err);
-                            showTip(`剪贴板操作失败：${err.message}`, true);
-                        }
-                    } else if (action === '6') {
-                        applyHistory(undoStack, redoStack, change => change.oldValue);
-                    } else if (action === '7') {
-                        applyHistory(redoStack, undoStack, change => change.value);
+                    const rowIndex = getRowIndex(cell);
+                    if (rowIndex < 0) return;
+
+                    const actions = [];
+                    if (!dynamicColumn(cell.col)) {
+                        actions.push(
+                            {
+                                label: '上方插入行',
+                                run: async () => {
+                                    const result = await postJSON('/api/bom/add-row', {
+                                        part_name: 'NEW PART',
+                                        material_desc: 'NEW MATERIAL',
+                                        unit: 'MTR'
+                                    });
+                                    if (!result.success || !result.item_id) throw new Error('新增物料接口未返回物料编号');
+                                    const newRecord = {
+                                        item_id: result.item_id,
+                                        part_name: 'NEW PART',
+                                        material_desc: 'NEW MATERIAL',
+                                        unit: 'MTR',
+                                        ...Object.fromEntries(colorCodes.flatMap(code => [[code + '_color', ''], [code + '_process', '']]))
+                                    };
+                                    tableInstance.addRecord(newRecord, rowIndex);
+                                    records.splice(rowIndex, 0, newRecord);
+                                }
+                            },
+                            {
+                                label: '下方插入行',
+                                run: async () => {
+                                    const result = await postJSON('/api/bom/add-row', {
+                                        part_name: 'NEW PART',
+                                        material_desc: 'NEW MATERIAL',
+                                        unit: 'MTR'
+                                    });
+                                    if (!result.success || !result.item_id) throw new Error('新增物料接口未返回物料编号');
+                                    const insertAt = rowIndex + 1;
+                                    const newRecord = {
+                                        item_id: result.item_id,
+                                        part_name: 'NEW PART',
+                                        material_desc: 'NEW MATERIAL',
+                                        unit: 'MTR',
+                                        ...Object.fromEntries(colorCodes.flatMap(code => [[code + '_color', ''], [code + '_process', '']]))
+                                    };
+                                    tableInstance.addRecord(newRecord, insertAt);
+                                    records.splice(insertAt, 0, newRecord);
+                                }
+                            },
+                            {
+                                label: '删除当前行',
+                                run: async () => {
+                                    const record = getRecord(cell);
+                                    if (!record || !record.item_id || !confirm('确定要删除当前物料行及其关联明细吗？')) return;
+                                    await postJSON('/api/bom/delete-row', { item_id: record.item_id });
+                                    tableInstance.deleteRecords([rowIndex]);
+                                    records.splice(rowIndex, 1);
+                                }
+                            }
+                        );
                     }
+                    actions.push(
+                        { label: '复制单元格', run: () => copyCell(cell) },
+                        { label: '粘贴到单元格', run: () => pasteCell(cell) },
+                        { label: '撤销', run: () => applyHistory(undoStack, redoStack, change => change.oldValue) },
+                        { label: '重做', run: () => applyHistory(redoStack, undoStack, change => change.value) }
+                    );
+                    showContextMenu(event, actions);
                 });
             })
             .catch(err => {
