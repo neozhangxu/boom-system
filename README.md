@@ -33,6 +33,10 @@
 ```text
 bom-system/
 ├── .env                  # 核心配置文件（集中管理数据库连接凭证与端口）
+├── .env.example          # 本地开发环境配置模板
+├── docker-compose.yml    # MariaDB 容器及持久化数据卷
+├── docker/
+│   └── mariadb/init/     # 首次启动时创建空白数据库和主表
 ├── go.mod                # Go 模块依赖管理文件
 ├── go.sum                # Go 依赖校验和锁文件
 ├── package.json          # 前端 VTable 与插件依赖
@@ -121,7 +125,17 @@ DROP DATABASE boom;
 
 ## 🚀 快速部署与运行指南
 
-1. **环境初始化**：
+1. **准备配置与 MariaDB**：
+   复制示例配置并启动数据库容器。首次启动会创建所需数据库及空白的 `bom_header` 主表；BOM 业务数据不会随仓库分发。
+   ```bash
+   cp -n .env.example .env
+   docker compose up -d --wait
+   docker compose ps
+   ```
+
+   MariaDB 数据保存在 Docker 命名卷 `mariadb_data` 中，容器重建不会清空数据。停止服务使用 `docker compose down`；只有明确要删除数据库数据时才使用 `docker compose down -v`。默认开发密码仅供本机使用，部署到共享或生产环境前请修改 `.env` 中的 `DB_PASSWORD`。
+
+2. **环境初始化**：
    仓库已包含前端 VTable 运行包，可直接启动 Go 服务。若修改前端依赖或构建入口，确保安装 Node.js 后重新构建：
    ```bash
    npm install
@@ -131,17 +145,6 @@ DROP DATABASE boom;
    下载 Go 依赖：
    ```bash
    go mod download
-   ```
-
-2. **配置环境变量 (`.env`)**：
-   在项目根目录下创建并配置 `.env` 文件：
-   ```env
-   DB_USER=root
-   DB_PASSWORD=你的数据库密码
-   DB_HOST=127.0.0.1
-   DB_PORT=3306
-   DB_NAME=bom_header
-   SERVER_PORT=:8080
    ```
 
 3. **启动后端服务**：
