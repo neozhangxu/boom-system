@@ -2,93 +2,135 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>PRO WELL (VIETNAM) CO.,LTD - 鞋款多配色 BOM 展开矩阵 (VTable)</title>
-    <script src="https://cdn.jsdelivr.net/npm/@visactor/vtable@latest/dist/vtable.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@visactor/vtable-editors@latest/dist/vtable-editors.min.js"></script>
+    <title>鞋款多配色 BOM 展开矩阵 (VTable)</title>
+    <script src="/static/build/bom-vendor.js"></script>
     <style>
         body { font-family: Arial, sans-serif; margin: 15px; background-color: #f4f6f9; color: #333; font-size: 13px; }
-        .bom-container { background: #fff; padding: 20px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 98%; margin: 0 auto; }
+        .app-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start; }
+        .style-sidebar { position: sticky; top: 15px; max-height: calc(100vh - 30px); display: flex; flex-direction: column; overflow: hidden; background: #fff; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .style-sidebar h2 { margin: 0; padding: 16px; border-bottom: 1px solid #e5e7eb; font-size: 15px; }
+        .style-search { display: flex; gap: 6px; padding: 8px; }
+        .style-search input { box-sizing: border-box; min-width: 0; flex: 1; padding: 7px; border: 1px solid #cbd5e1; border-radius: 4px; }
+        .style-search button { padding: 7px 10px; }
+        .style-search .btn { flex: 0 0 auto; margin: 0; padding: 7px 8px; }
+        .style-search .delete-style-btn { background: #dc2626; }
+        .style-search .delete-style-btn:hover { background: #b91c1c; }
+        .style-list-status { padding: 8px 12px; color: #64748b; font-size: 12px; }
+        #style-no-list { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 8px; }
+        .style-no-item { display: block; width: 100%; padding: 9px 10px; border: 0; border-radius: 4px; background: transparent; color: #1f2937; text-align: left; font: inherit; overflow-wrap: anywhere; cursor: pointer; }
+        .style-no-item:hover { background: #f1f5f9; }
+        .style-no-item.active { background: #dbeafe; color: #1d4ed8; font-weight: bold; }
+        .style-sidebar .btn { margin: 8px; }
+        .bom-content { min-width: 0; }
+        .bom-container { box-sizing: border-box; background: #fff; padding: 20px; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); width: 100%; margin: 0; }
         
         .company-title { font-size: 16px; font-weight: bold; color: #222; outline: none; }
         .doc-title { font-size: 18px; font-weight: bold; text-align: center; color: #000; margin: 10px 0; outline: none; }
         .info-table { width: 100%; border-collapse: collapse; margin-bottom: 15px; font-size: 12px; }
         .info-table td { border: 1px solid #ccc; padding: 5px 8px; background: #fafafa; }
-        .info-label { font-weight: bold; color: #555; width: 15%; }
-        .info-val { color: #000; width: 35%; outline: none; background: #fff; }
+        .info-label { font-weight: bold; color: #555; width: 12%; }
+        .info-val { color: #000; width: 21%; outline: none; background: #fff; }
         .info-val:focus { background: #eef4ff; border: 1px solid #3b82f6; }
 
         .excel-footer { width: 100%; margin-top: 20px; border-collapse: collapse; font-size: 13px; }
         .excel-footer td { padding: 15px 10px; border: 1px solid #ccc; outline: none; background: #fafafa; width: 33.33%; }
         .excel-footer td:focus { background: #eef4ff; }
 
-        #bom-table { width: 100%; height: 600px; margin-bottom: 15px; border: 1px solid #ccc; }
+        #bom-table { position: relative; width: 100%; height: 600px; margin-bottom: 15px; border: 1px solid #ccc; }
+        .bom-header-editor { position: absolute; z-index: 2; box-sizing: border-box; padding: 6px 8px; border: 2px solid #2563eb; outline: none; font: inherit; }
         #bom-context-menu { position: fixed; z-index: 10000; display: none; min-width: 170px; padding: 4px; background: #fff; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
         #bom-context-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 4px; background: transparent; color: #222; text-align: left; font: inherit; cursor: pointer; white-space: nowrap; }
         #bom-context-menu button:hover { background: #eff6ff; color: #1d4ed8; }
         
-        .toolbar { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; }
+        .toolbar { margin-bottom: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .btn { padding: 6px 14px; background: #2563eb; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .btn:hover { background: #1d4ed8; }
         .status-tip { color: #059669; font-weight: bold; font-size: 12px; }
+        @media (max-width: 900px) {
+            .app-layout { grid-template-columns: 1fr; }
+            .style-sidebar { position: static; max-height: 280px; }
+            .bom-container { padding: 12px; }
+        }
     </style>
 </head>
 <body>
 
-    <div class="bom-container">
-        <div class="company-title" contenteditable="true">PRO WELL (VIETNAM) CO.,LTD</div>
-        <div class="doc-title" contenteditable="true">樣品單-多配色</div>
+    <div class="app-layout">
+      <aside class="style-sidebar" aria-label="Style No. 鞋款列表">
+        <h2>Style No. 列表</h2>
+        <div class="style-search">
+          <input id="style-no-search" type="search" maxlength="100" placeholder="搜索编号前缀" aria-label="按 Style No. 前缀搜索">
+          <button class="btn" id="style-no-search-btn" type="button">搜索</button>
+          <button class="btn" id="add-style-no-btn" type="button">新增</button>
+          <button class="btn delete-style-btn" id="delete-style-no-btn" type="button">删除</button>
+        </div>
+        <div id="style-list-status" class="style-list-status" aria-live="polite">正在加载…</div>
+        <nav id="style-no-list" aria-label="所有 Style No."></nav>
+        <button class="btn" id="style-load-more-btn" type="button" hidden>加载更多</button>
+      </aside>
+      <main class="bom-content">
+       <div class="bom-container">
+        <div class="company-title header-width" contenteditable="true" data-header-field="company_name">NEO.LTD</div>
 
-        <table class="info-table">
-            <tr>
-                <td class="info-label">Sample Order No.:</td>
-                <td class="info-val" contenteditable="true" id="val-order-no">260915009</td>
-                <td class="info-label">Sample Type:</td>
-                <td class="info-val" contenteditable="true">CFM 確認樣</td>
-            </tr>
+        <table class="info-table header-width">
             <tr>
                 <td class="info-label">Customer:</td>
-                <td class="info-val" contenteditable="true">-</td>
+                <td class="info-val" contenteditable="true" data-header-field="customer"></td>
                 <td class="info-label">Season：</td>
-                <td class="info-val" contenteditable="true">FW27</td>
+                <td class="info-val" contenteditable="true" data-header-field="season">FW27</td>
+                <td class="info-label">Request Finish Date：</td>
+                <td class="info-val" contenteditable="true" data-header-field="request_finish_date">2026-10-15</td>
             </tr>
             <tr>
                 <td class="info-label">Brand：</td>
-                <td class="info-val" contenteditable="true">-</td>
+                <td class="info-val" contenteditable="true" data-header-field="brand"></td>
                 <td class="info-label">Gender:</td>
-                <td class="info-val" contenteditable="true">W'S US</td>
+                <td class="info-val" contenteditable="true" data-header-field="gender">W'S US</td>
+                <td class="info-label">Pattern Master：</td>
+                <td class="info-val" contenteditable="true" data-header-field="pattern_master"></td>
             </tr>
             <tr>
                 <td class="info-label">Style No.：</td>
-                <td class="info-val" contenteditable="true" id="val-style-no">ON-27Q3-094W</td>
+                <td class="info-val" contenteditable="true" data-header-field="style_no" id="val-style-no">ON-27Q3-094W</td>
                 <td class="info-label">Style Name:</td>
-                <td class="info-val" contenteditable="true" id="val-style-name">CLOUDMUSE SENSA</td>
+                <td class="info-val" contenteditable="true" data-header-field="style_name" id="val-style-name">CLOUDMUSE SENSA</td>
+                <td class="info-label">Tooling Master：</td>
+                <td class="info-val" contenteditable="true" data-header-field="tooling_master"></td>
             </tr>
             <tr>
                 <td class="info-label">Last No.：</td>
-                <td class="info-val" contenteditable="true">21-009-W-LOW</td>
+                <td class="info-val" contenteditable="true" data-header-field="last_no">21-009-W-LOW</td>
                 <td class="info-label">Bottom No.：</td>
-                <td class="info-val" contenteditable="true">ON180-PT</td>
+                <td class="info-val" contenteditable="true" data-header-field="bottom_no">ON180-PT</td>
+                <td class="info-label">Shoe filler no：</td>
+                <td class="info-val" contenteditable="true" data-header-field="shoe_filler_no">21-009-1</td>
             </tr>
             <tr>
-                <td class="info-label">Shoetype：</td>
-                <td class="info-val" contenteditable="true" colspan="3">PAD PERFORMANCE ALL DAY</td>
+                <td class="info-label">Stage：</td>
+                <td class="info-val" contenteditable="true" data-header-field="stage" colspan="5">PAD PERFORMANCE ALL DAY</td>
             </tr>
         </table>
 
         <div class="toolbar">
-            <button class="btn" id="save-btn">💾 保存状态确认</button>
+            <button class="btn" id="save-btn">💾 确认保存</button>
+            <button class="btn" id="cancel-new-btn" type="button" hidden>取消</button>
+            <button class="btn" id="import-excel-btn" type="button">导入 Excel</button>
+            <button class="btn" id="export-excel-btn" type="button">导出 Excel</button>
+            <input id="import-excel-file" type="file" accept=".xlsx" hidden>
             <span class="status-tip" id="status-tip"></span>
         </div>
 
         <div id="bom-table"></div>
 
-        <table class="excel-footer">
+        <table class="excel-footer header-width">
             <tr>
-                <td contenteditable="true"><strong>核准：</strong></td>
-                <td contenteditable="true"><strong>審核人：</strong></td>
-                <td contenteditable="true"><strong>制表人：</strong></td>
+                <td><strong>核准：</strong><span contenteditable="true" data-footer-field="approved_by"></span></td>
+                <td><strong>審核人：</strong><span contenteditable="true" data-footer-field="reviewed_by"></span></td>
+                <td><strong>制表人：</strong><span contenteditable="true" data-footer-field="prepared_by"></span></td>
             </tr>
         </table>
+       </div>
+      </main>
     </div>
 
     <script>
@@ -99,32 +141,366 @@
         let hasClipboardValue = false;
         let applyingHistory = false;
 
-        fetch('/api/bom/header')
-            .then(res => res.json())
-            .then(headerData => {
-                if (headerData.style_name) {
-                    document.getElementById('val-order-no').innerText = headerData.sample_order_no || '';
-                    document.getElementById('val-style-no').innerText = headerData.style_no || '';
-                    document.getElementById('val-style-name').innerText = headerData.style_name || '';
+        const headerFields = Array.from(document.querySelectorAll('[data-header-field]'));
+        const footerFields = Array.from(document.querySelectorAll('[data-footer-field]'));
+        const headerSavePromises = new WeakMap();
+        const pendingHeaderSaves = new Set();
+        let statusTimer;
+        const pageParams = new URLSearchParams(location.search);
+        const createMode = pageParams.get('new') === '1';
+        [...headerFields, ...footerFields].forEach(field => {
+            field.contentEditable = 'false';
+        });
+        const requestedBomID = Number(pageParams.get('bom_id') || 1);
+        let activeBomID = createMode ? 0 :
+            Number.isSafeInteger(requestedBomID) && requestedBomID > 0 ? requestedBomID : 1;
+        let bomQuery = `bom_id=${encodeURIComponent(activeBomID)}`;
+        let activeBomReady;
+        const getVisibleHeaderData = () => Object.fromEntries(headerFields.map(field => [
+            field.dataset.headerField,
+            field.innerText.trim()
+        ]).concat(footerFields.map(field => [
+            field.dataset.footerField,
+            field.innerText.trim()
+        ])));
+        const fetchHeader = async () => {
+            if (!await activeBomReady) throw new Error('数据库中没有可加载的 BOM 主记录');
+            if (createMode) {
+                return Object.fromEntries(headerFields.concat(footerFields).map(field => [
+                    field.dataset.headerField || field.dataset.footerField, ''
+                ]));
+            }
+            const response = await fetch(`/api/bom/header?${bomQuery}`);
+            if (!response.ok) throw new Error(`表头加载失败 (${response.status})`);
+            return response.json();
+        };
+        const showHeaderStatus = (message, isError = false) => {
+            const tip = document.getElementById('status-tip');
+            clearTimeout(statusTimer);
+            tip.innerText = message;
+            tip.style.color = isError ? '#dc2626' : '';
+            if (!isError) statusTimer = setTimeout(() => { tip.innerText = ''; }, 4000);
+        };
+        const styleNoList = document.getElementById('style-no-list');
+        const styleListStatus = document.getElementById('style-list-status');
+        const styleLoadMoreButton = document.getElementById('style-load-more-btn');
+        const addStyleNoButton = document.getElementById('add-style-no-btn');
+        const deleteStyleNoButton = document.getElementById('delete-style-no-btn');
+        const styleButtonsByID = new Map();
+        let styleListCursorID = 0;
+        let styleListCursorStyleNo = '';
+        let styleListQuery = '';
+        let styleListHighWatermark = 0;
+        let styleListHasMore = false;
+        let styleListLoading = false;
+        let styleListPolling = false;
+        const addStyleNo = (bom, prepend = false) => {
+            const key = String(bom.id);
+            const existingButton = styleButtonsByID.get(key);
+            if (existingButton) {
+                existingButton.textContent = bom.style_no;
+                existingButton.classList.toggle('active', bom.id === activeBomID);
+                return;
+            }
+            if (!bom.style_no) return;
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'style-no-item';
+            button.dataset.bomId = key;
+            button.textContent = bom.style_no;
+            button.classList.toggle('active', bom.id === activeBomID);
+            button.addEventListener('click', () => {
+                if (bom.id === activeBomID) return;
+                const url = new URL(location.href);
+                url.searchParams.set('bom_id', key);
+                location.assign(url);
+            });
+            styleButtonsByID.set(key, button);
+            if (prepend) styleNoList.prepend(button);
+            else styleNoList.appendChild(button);
+        };
+        const loadStyleNos = async (append = false, query = styleListQuery) => {
+            if (styleListLoading) return;
+            styleListLoading = true;
+            styleLoadMoreButton.disabled = true;
+            const params = new URLSearchParams({ limit: '50' });
+            if (query) params.set('q', query);
+            if (append) {
+                params.set(query ? 'cursor_style_no' : 'before_id',
+                    query ? styleListCursorStyleNo : String(styleListCursorID));
+            }
+            try {
+                const response = await fetch(`/api/bom/list?${params}`, { cache: 'no-store' });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || `Style No. 列表加载失败 (${response.status})`);
+                if (!append) {
+                    styleNoList.replaceChildren();
+                    styleButtonsByID.clear();
+                    styleListQuery = query;
+                    styleListCursorID = 0;
+                    styleListCursorStyleNo = '';
                 }
-            }).catch(err => console.log("加载头部信息提示:", err));
+                result.items.forEach(bom => addStyleNo(bom));
+                if (result.next_id) styleListCursorID = result.next_id;
+                styleListCursorStyleNo = result.next_style_no || '';
+                styleListHighWatermark = Math.max(styleListHighWatermark, result.high_watermark || 0);
+                styleListHasMore = result.has_more;
+                styleLoadMoreButton.hidden = !styleListHasMore;
+                styleListStatus.textContent = `已加载 ${styleButtonsByID.size} 个；每 10 秒检查新增`;
+            } catch (err) {
+                console.error('加载 Style No. 列表失败:', err);
+                styleListStatus.textContent = `加载失败：${err.message}`;
+                showHeaderStatus(`加载 Style No. 列表失败：${err.message}`, true);
+                throw err;
+            } finally {
+                styleListLoading = false;
+                styleLoadMoreButton.disabled = false;
+            }
+        };
+        const refreshNewStyleNos = async () => {
+            if (styleListPolling || document.hidden) return;
+            styleListPolling = true;
+            try {
+                const params = new URLSearchParams({
+                    since_id: String(styleListHighWatermark),
+                    limit: '50'
+                });
+                const response = await fetch(`/api/bom/list?${params}`, { cache: 'no-store' });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || `Style No. 增量同步失败 (${response.status})`);
+                result.items
+                    .filter(bom => !styleListQuery ||
+                        bom.style_no.toLocaleLowerCase().startsWith(styleListQuery.toLocaleLowerCase()))
+                    .forEach(bom => addStyleNo(bom, true));
+                const lastNewID = result.items.at(-1)?.id || 0;
+                styleListHighWatermark = result.has_more
+                    ? Math.max(styleListHighWatermark, lastNewID)
+                    : Math.max(styleListHighWatermark, result.high_watermark || 0);
+                styleListStatus.textContent = `已加载 ${styleButtonsByID.size} 个；${new Date().toLocaleTimeString()} 已同步`;
+            } catch (err) {
+                console.error('同步新增 Style No. 失败:', err);
+                styleListStatus.textContent = `实时同步失败，将自动重试：${err.message}`;
+            } finally {
+                styleListPolling = false;
+            }
+        };
+        styleLoadMoreButton.addEventListener('click', () => {
+            if (styleListHasMore) loadStyleNos(true).catch(() => {});
+        });
+        const searchStyleNos = () => loadStyleNos(
+            false, document.getElementById('style-no-search').value.trim()
+        ).catch(() => {});
+        document.getElementById('style-no-search-btn').addEventListener('click', searchStyleNos);
+        document.getElementById('style-no-search').addEventListener('keydown', event => {
+            if (event.key === 'Enter') searchStyleNos();
+        });
+        addStyleNoButton.addEventListener('click', () => {
+            const url = new URL(location.href);
+            url.searchParams.delete('bom_id');
+            url.searchParams.set('new', '1');
+            if (activeBomID > 0) url.searchParams.set('return_bom_id', String(activeBomID));
+            else url.searchParams.delete('return_bom_id');
+            location.assign(url);
+        });
+        document.getElementById('cancel-new-btn').addEventListener('click', () => {
+            const returnID = Number(pageParams.get('return_bom_id') || 0);
+            const url = new URL(location.href);
+            url.searchParams.delete('new');
+            url.searchParams.delete('return_bom_id');
+            if (Number.isSafeInteger(returnID) && returnID > 0) {
+                url.searchParams.set('bom_id', String(returnID));
+            } else {
+                url.searchParams.delete('bom_id');
+            }
+            location.assign(url);
+        });
+        if (createMode) {
+            document.getElementById('save-btn').textContent = '确定新增';
+            document.getElementById('cancel-new-btn').hidden = false;
+            document.getElementById('import-excel-btn').hidden = true;
+            document.getElementById('export-excel-btn').hidden = true;
+            deleteStyleNoButton.hidden = true;
+        }
+        deleteStyleNoButton.addEventListener('click', async () => {
+            if (createMode || activeBomID <= 0) return;
+            deleteStyleNoButton.disabled = true;
+            try {
+                if (!await activeBomReady) throw new Error('Style No. 列表尚未加载完成');
+                const header = await fetchHeader();
+                const styleNo = String(header.style_no || '').trim();
+                if (!styleNo) throw new Error('当前鞋款没有有效的 Style No.，不能删除');
+                if (!confirm(`确定永久删除 Style No.「${styleNo}」及其全部 BOM 物料、配色和明细数据吗？此操作无法撤销。`)) return;
+                const response = await fetch(`/api/bom/delete?${bomQuery}`, { method: 'POST' });
+                const result = await response.json();
+                if (!response.ok && !result.deleted) {
+                    throw new Error(result.error || `删除失败 (${response.status})`);
+                }
+                if (result.error) alert(result.error);
+                const url = new URL(location.href);
+                url.searchParams.delete('new');
+                url.searchParams.delete('return_bom_id');
+                url.searchParams.delete('q');
+                if (result.fallback_bom_id) {
+                    url.searchParams.set('bom_id', String(result.fallback_bom_id));
+                } else {
+                    url.searchParams.delete('bom_id');
+                    url.searchParams.set('new', '1');
+                }
+                location.assign(url);
+            } catch (err) {
+                console.error('删除鞋款失败:', err);
+                showHeaderStatus(`删除失败：${err.message}`, true);
+            } finally {
+                deleteStyleNoButton.disabled = false;
+            }
+        });
+        activeBomReady = (async () => {
+            try {
+                await loadStyleNos();
+                if (!createMode && !styleButtonsByID.has(String(activeBomID))) {
+                    const response = await fetch(`/api/bom/list?bom_id=${encodeURIComponent(activeBomID)}`);
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || `当前 Style No. 加载失败 (${response.status})`);
+                    const selectedBom = result.items.find(bom => bom.id === activeBomID);
+                    if (selectedBom) {
+                        addStyleNo(selectedBom, true);
+                    } else {
+                        const fallback = styleButtonsByID.values().next().value;
+                        if (!fallback) throw new Error('数据库中没有可用的 BOM 主记录');
+                        activeBomID = Number(fallback.dataset.bomId);
+                        bomQuery = `bom_id=${encodeURIComponent(activeBomID)}`;
+                        const url = new URL(location.href);
+                        url.searchParams.set('bom_id', String(activeBomID));
+                        history.replaceState(null, '', url);
+                        styleButtonsByID.forEach(button => {
+                            button.classList.toggle('active', button.dataset.bomId === String(activeBomID));
+                        });
+                    }
+                }
+                window.setInterval(refreshNewStyleNos, 10000);
+                return true;
+            } catch (err) {
+                console.error('加载 Style No. 列表失败:', err);
+                showHeaderStatus(`加载 BOM 列表失败：${err.message}`, true);
+                return false;
+            }
+        })();
+        const saveHeaderField = field => {
+            if (createMode) return Promise.resolve(false);
+            const pendingSave = headerSavePromises.get(field);
+            if (pendingSave) return pendingSave.then(() => saveHeaderField(field));
 
-        fetch('/api/bom/matrix')
-            .then(res => res.json())
+            const fieldName = field.dataset.headerField || field.dataset.footerField;
+            const value = field.innerText.trim();
+            if (field.dataset.persistedValue === undefined) {
+                showHeaderStatus('表头尚未加载，暂时无法保存', true);
+                return Promise.resolve(false);
+            }
+            if (value === field.dataset.persistedValue) return Promise.resolve(true);
+            if (fieldName === 'style_no' &&
+                (!/^[A-Za-z0-9_-]{1,64}$/.test(value) ||
+                    ['_unassigned_', 'bom_parts', 'bom_item', 'bom_colorway', 'bom_item_color_detail']
+                        .includes(value.toLowerCase()))) {
+                field.innerText = field.dataset.persistedValue;
+                showHeaderStatus('Style No. 必须为 1–64 位英文字母、数字、下划线或连字符，且不能与系统表名冲突', true);
+                return Promise.resolve(false);
+            }
+
+            const save = (async () => {
+                try {
+                    const response = await fetch(`/api/bom/update-header?${bomQuery}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ field: fieldName, value })
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || `保存失败 (${response.status})`);
+                    field.dataset.persistedValue = value;
+                    if (fieldName === 'style_no') {
+                        const activeStyleNoButton = styleButtonsByID.get(String(activeBomID));
+                        if (activeStyleNoButton) activeStyleNoButton.textContent = value;
+                    }
+                    return true;
+                } catch (err) {
+                    console.error('保存表头失败:', err);
+                    if (field.innerText.trim() === value) {
+                        field.innerText = field.dataset.persistedValue || '';
+                    }
+                    showHeaderStatus(`表头保存失败：${err.message}`, true);
+                    return false;
+                }
+            })();
+            headerSavePromises.set(field, save);
+            pendingHeaderSaves.add(save);
+            save.finally(() => {
+                if (headerSavePromises.get(field) === save) headerSavePromises.delete(field);
+                pendingHeaderSaves.delete(save);
+            });
+            return save;
+        };
+        const waitForHeaderSaves = async () => {
+            while (pendingHeaderSaves.size) {
+                await Promise.all([...pendingHeaderSaves]);
+            }
+            const unsavedFields = [...headerFields, ...footerFields].filter(field =>
+                field.dataset.persistedValue !== undefined &&
+                field.innerText.trim() !== field.dataset.persistedValue
+            );
+            if (unsavedFields.length) {
+                await Promise.all(unsavedFields.map(saveHeaderField));
+                await waitForHeaderSaves();
+            }
+        };
+        fetchHeader()
+            .then(headerData => {
+                document.title = `${headerData.company_name || '鞋款'} - ${headerData.style_no || 'BOM'} (VTable)`;
+                headerFields.forEach(field => {
+                    const value = headerData[field.dataset.headerField];
+                    if (value !== undefined && value !== null) field.innerText = value;
+                    field.dataset.persistedValue = field.innerText.trim();
+                });
+                footerFields.forEach(field => {
+                    const value = headerData[field.dataset.footerField];
+                    if (value !== undefined && value !== null) field.innerText = value;
+                    field.dataset.persistedValue = field.innerText.trim();
+                });
+                [...headerFields, ...footerFields].forEach(field => {
+                    field.contentEditable = 'true';
+                });
+            })
+            .catch(err => {
+                console.error('加载表头失败:', err);
+                showHeaderStatus(`加载表头失败：${err.message}`, true);
+            });
+
+        [...headerFields, ...footerFields].forEach(field => field.addEventListener('blur', async () => {
+            if (await saveHeaderField(field)) showHeaderStatus('✓ 鞋款表头已同步至数据库');
+        }));
+
+        (createMode ? Promise.resolve({ ok: true, json: async () => ({ columns: [], data: [] }) }) : activeBomReady.then(ready => {
+            if (!ready) throw new Error('数据库中没有可加载的 BOM 主记录');
+            return fetch(`/api/bom/matrix?${bomQuery}`);
+        }))
+            .then(async response => {
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || `BOM 矩阵加载失败 (${response.status})`);
+                return data;
+            })
             .then(resData => {
                 const inputEditor = new VTable.editors.InputEditor();
 
                 const colorCodes = resData.columns || [];
+                const processColumns = resData.process_columns || {};
                 const columns = [
-                    { field: 'part_name', title: 'Parts (部件)', width: 140 },
+                    { field: 'part_name', title: 'Parts', width: 140, editor: inputEditor },
                     { field: 'material_desc', title: 'Material Description', width: 320, editor: inputEditor },
                     { field: 'unit', title: 'Unit', width: 70, editor: inputEditor }
                 ];
                 colorCodes.forEach(code => {
-                    columns.push(
-                        { field: code + '_color', title: code, width: 220, editor: inputEditor },
-                        { field: code + '_process', title: 'Process', width: 220, editor: inputEditor }
-                    );
+                    columns.push({ field: code + '_color', title: code, width: 220, editor: inputEditor });
+                    if (processColumns[code] !== false) {
+                        columns.push({ field: code + '_process', title: 'Process', width: 220, editor: inputEditor });
+                    }
                 });
 
                 const records = (resData.data || []).map(item => {
@@ -137,19 +513,40 @@
                     colorCodes.forEach(code => {
                         const detail = (item.color_details && item.color_details[code]) || {};
                         record[code + '_color'] = detail.color_desc || '';
-                        record[code + '_process'] = detail.process_desc || '';
+                        if (processColumns[code] !== false) record[code + '_process'] = detail.process_desc || '';
                     });
                     return record;
                 });
+                const persistedCellValues = new Map();
+                const cellEditVersions = new Map();
+                records.forEach(record => {
+                    columns.forEach(column => {
+                        if (column.field) {
+                            persistedCellValues.set(
+                                `${record.item_id}:${column.field}`,
+                                String(record[column.field] ?? '')
+                            );
+                        }
+                    });
+                });
+                let mutationQueue = Promise.resolve();
+                const cellMutationPromises = new Map();
+                let historyActionInProgress = false;
+                const waitForPendingWrites = async () => {
+                    await mutationQueue;
+                    await waitForHeaderSaves();
+                };
 
                 const tip = document.getElementById('status-tip');
                 const showTip = (message, isError = false) => {
+                    clearTimeout(statusTimer);
                     tip.innerText = message;
                     tip.style.color = isError ? '#dc2626' : '';
-                    if (!isError) setTimeout(() => { tip.innerText = ''; }, 4000);
+                    if (!isError) statusTimer = setTimeout(() => { tip.innerText = ''; }, 4000);
                 };
                 const postJSON = async (url, body) => {
-                    const response = await fetch(url, {
+                    const separator = url.includes('?') ? '&' : '?';
+                    const response = await fetch(`${url}${separator}${bomQuery}`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(body)
@@ -165,6 +562,183 @@
                 const dynamicColumn = col => col >= 3 && col < columns.length;
                 const getRowIndex = cell => cell.row - 1;
                 const getRecord = cell => tableInstance.getCellOriginRecord(cell.col, cell.row);
+                let selectedBodyCell = records.length ? { col: 0, row: 1 } : null;
+
+                const headerLabels = {
+                    company_name: 'Company Name',
+                    customer: 'Customer',
+                    season: 'Season',
+                    request_finish_date: 'Request Finish Date',
+                    brand: 'Brand',
+                    gender: 'Gender',
+                    pattern_master: 'Pattern Master',
+                    style_no: 'Style No.',
+                    style_name: 'Style Name',
+                    tooling_master: 'Tooling Master',
+                    last_no: 'Last No.',
+                    bottom_no: 'Bottom No.',
+                    shoe_filler_no: 'Shoe filler no',
+                    stage: 'Stage'
+                };
+                const excelHeaderLabels = {
+                    customer: 'Customer:',
+                    season: 'Season：',
+                    request_finish_date: 'Request Finish Date：',
+                    brand: 'Brand：',
+                    gender: 'Gender:',
+                    pattern_master: 'Pattern Master：',
+                    style_no: 'Style No.：',
+                    style_name: 'Style Name:',
+                    tooling_master: 'Tooling Master：',
+                    last_no: 'Last No.：',
+                    bottom_no: 'Bottom No.：',
+                    shoe_filler_no: 'Shoe filler no：',
+                    stage: 'Stage：'
+                };
+                const excelFooterLabels = {
+                    approved_by: '核准：',
+                    reviewed_by: '審核人：',
+                    prepared_by: '制表人：'
+                };
+                const tableContainer = document.getElementById('bom-table');
+                const syncDocumentWidths = () => {
+                    const width = Math.min(
+                        Math.ceil(tableInstance.getAllColsWidth()),
+                        tableContainer.clientWidth
+                    );
+                    document.querySelectorAll('.header-width').forEach(element => {
+                        element.style.width = `${width}px`;
+                    });
+                };
+                const exportExcelOptions = {
+                    fileName: 'BOM',
+                    sheetName: 'BOM',
+                    downloadFile: true,
+                    excelJSWorksheetCallback: worksheet => {
+                        worksheet.name = exportExcelOptions.sheetName;
+                        const header = getVisibleHeaderData();
+                        const excelRows = [];
+                        if (header.company_name) excelRows.push([header.company_name]);
+                        excelRows.push(
+                            [
+                                excelHeaderLabels.customer, header.customer || '',
+                                excelHeaderLabels.season, header.season || '',
+                                `${excelHeaderLabels.request_finish_date} ${header.request_finish_date || ''}`
+                            ],
+                            [
+                                excelHeaderLabels.brand, header.brand || '',
+                                excelHeaderLabels.gender, header.gender || '',
+                                `${excelHeaderLabels.pattern_master} ${header.pattern_master || ''}`
+                            ],
+                            [
+                                excelHeaderLabels.style_no, header.style_no || '',
+                                excelHeaderLabels.style_name, header.style_name || '',
+                                `${excelHeaderLabels.tooling_master} ${header.tooling_master || ''}`
+                            ],
+                            [
+                                excelHeaderLabels.last_no, header.last_no || '',
+                                excelHeaderLabels.bottom_no, header.bottom_no || '',
+                                `${excelHeaderLabels.shoe_filler_no} ${header.shoe_filler_no || ''}`
+                            ],
+                            [excelHeaderLabels.stage, header.stage || '']
+                        );
+                        worksheet.spliceRows(1, 0, ...excelRows);
+                        const lastColumn = Math.max(worksheet.columnCount, 5);
+                        let rowNumber = 1;
+                        if (header.company_name) {
+                            worksheet.mergeCells(rowNumber, 1, rowNumber, lastColumn);
+                            const companyCell = worksheet.getCell(rowNumber, 1);
+                            companyCell.font = { bold: true, size: 14 };
+                            companyCell.alignment = { horizontal: 'left', vertical: 'middle' };
+                            worksheet.getRow(rowNumber).height = 26;
+                            rowNumber++;
+                        }
+                        const infoBorder = { style: 'thin', color: { argb: 'FFCCCCCC' } };
+                        const infoStartRow = rowNumber;
+                        const shoeTypeRow = infoStartRow + 4;
+                        worksheet.mergeCells(shoeTypeRow, 2, shoeTypeRow, lastColumn);
+                        for (let infoRow = infoStartRow; infoRow <= shoeTypeRow; infoRow++) {
+                            worksheet.getRow(infoRow).height = 22;
+                            for (let colNumber = 1; colNumber <= lastColumn; colNumber++) {
+                                const cell = worksheet.getCell(infoRow, colNumber);
+                                cell.border = {
+                                    top: infoBorder,
+                                    bottom: infoBorder,
+                                    left: infoBorder,
+                                    right: infoBorder
+                                };
+                                cell.alignment = { vertical: 'middle' };
+                            }
+                            for (const colNumber of [1, 3, 5]) {
+                                if (infoRow === shoeTypeRow && colNumber > 1) continue;
+                                const labelCell = worksheet.getCell(infoRow, colNumber);
+                                labelCell.font = { bold: true };
+                            }
+                        }
+                        const footerRow = worksheet.addRow([]);
+                        const columnWidths = Array.from({ length: lastColumn }, (_, index) =>
+                            Number(worksheet.getColumn(index + 1).width) || 8
+                        );
+                        const widthPrefix = [0];
+                        columnWidths.forEach(width => widthPrefix.push(widthPrefix[widthPrefix.length - 1] + width));
+                        const totalWidth = widthPrefix[lastColumn];
+                        const targetWidth = totalWidth / 3;
+                        let footerGroups;
+                        if (lastColumn >= 3) {
+                            let bestScore = Infinity;
+                            for (let firstEnd = 1; firstEnd < lastColumn - 1; firstEnd++) {
+                                for (let secondEnd = firstEnd + 1; secondEnd < lastColumn; secondEnd++) {
+                                    const widths = [
+                                        widthPrefix[firstEnd],
+                                        widthPrefix[secondEnd] - widthPrefix[firstEnd],
+                                        totalWidth - widthPrefix[secondEnd]
+                                    ];
+                                    const score = widths.reduce((sum, width) => sum + (width - targetWidth) ** 2, 0);
+                                    if (score < bestScore) {
+                                        bestScore = score;
+                                        footerGroups = [
+                                            [1, firstEnd],
+                                            [firstEnd + 1, secondEnd],
+                                            [secondEnd + 1, lastColumn]
+                                        ];
+                                    }
+                                }
+                            }
+                        } else {
+                            footerGroups = [[1, lastColumn], [1, lastColumn], [1, lastColumn]];
+                        }
+                        Object.entries(excelFooterLabels).forEach(([field, label], index) => {
+                            const [firstColumn, lastGroupColumn] = footerGroups[index];
+                            if (lastGroupColumn > firstColumn) {
+                                worksheet.mergeCells(footerRow.number, firstColumn, footerRow.number, lastGroupColumn);
+                            }
+                            const cell = worksheet.getCell(footerRow.number, firstColumn);
+                            const value = getVisibleHeaderData()[field] || '';
+                            cell.value = value ? `${label}\n${value}` : label;
+                            cell.font = { bold: true };
+                            cell.alignment = { vertical: 'top', wrapText: true };
+                        });
+                        footerRow.height = 48;
+                        for (let colNumber = 1; colNumber <= lastColumn; colNumber++) {
+                            const cell = footerRow.getCell(colNumber);
+                            cell.border = {
+                                top: infoBorder,
+                                bottom: infoBorder,
+                                left: infoBorder,
+                                right: infoBorder
+                            };
+                            cell.alignment = { vertical: 'top', wrapText: true };
+                        }
+                        worksheet.views = [];
+                    }
+                };
+                const tableExportPlugin = new VTablePlugins.TableExportPlugin({
+                    exportExcelOptions
+                });
+                const excelImportPlugin = new VTablePlugins.ExcelImportPlugin({
+                    autoTable: false,
+                    autoColumns: false
+                });
 
                 tableInstance = new VTable.ListTable({
                     container: document.getElementById('bom-table'),
@@ -183,21 +757,49 @@
                     keyboardOptions: {
                         copySelected: true,
                         pasteValueToCell: true
-                    }
+                    },
+                    plugins: [tableExportPlugin, excelImportPlugin]
                 });
+                syncDocumentWidths();
+                tableInstance.on(VTable.TABLE_EVENT_TYPE.RESIZE_COLUMN_END, syncDocumentWidths);
+                window.addEventListener('resize', syncDocumentWidths);
 
                 tableInstance.on('change_cell_value', args => {
-                    const { col, row, value, oldValue } = args;
+                    const { col, row, currentValue: oldValue, changedValue: value } = args;
                     if (value === oldValue) return;
 
                     const field = columns[col] && columns[col].field;
+                    if (row === 0) {
+                        if (!field || col < 3) return;
+                        const oldTitle = String(oldValue ?? '');
+                        const newTitle = String(value ?? '').trim();
+                        if (!newTitle) {
+                            tableInstance.changeCellValue(col, row, oldTitle, false, false);
+                            showTip('列名不能为空', true);
+                            return;
+                        }
+                        columns[col].title = newTitle;
+
+                        if (field.endsWith('_color')) {
+                            const oldCode = field.slice(0, -'_color'.length);
+                            waitForPendingWrites()
+                                .then(() => postJSON('/api/bom/update-column', { old_code: oldCode, new_code: newTitle }))
+                                .then(() => location.reload())
+                                .catch(err => {
+                                    columns[col].title = oldTitle;
+                                    tableInstance.changeCellValue(col, row, oldTitle, false, false);
+                                    console.error('配色列名同步失败:', err);
+                                    showTip(`列名同步失败：${err.message}`, true);
+                                });
+                        } else {
+                            showTip('✓ 列名已修改（当前页面生效）');
+                        }
+                        return;
+                    }
+
                     const record = getRecord({ col, row });
                     if (!record || !record.item_id || !field) return;
-
-                    if (!applyingHistory) {
-                        undoStack.push({ itemID: record.item_id, col, oldValue, value });
-                        redoStack.length = 0;
-                    }
+                    const isHistoryChange = applyingHistory;
 
                     let colorCode = '';
                     let fieldType = '';
@@ -208,26 +810,103 @@
                         colorCode = field.slice(0, -'_process'.length);
                         fieldType = 'process';
                     }
-                    if (!colorCode || !fieldType) return;
+                    const update = () => colorCode && fieldType
+                        ? postJSON('/api/bom/update-cell', {
+                            item_id: record.item_id,
+                            color_code: colorCode,
+                            field_type: fieldType,
+                            value: value || ''
+                        })
+                        : postJSON('/api/bom/update-row', {
+                            item_id: record.item_id,
+                            field,
+                            value: value || ''
+                        });
+                    const mutationKey = `${record.item_id}:${field}`;
+                    const persistedValue = persistedCellValues.get(mutationKey) ?? String(oldValue ?? '');
+                    const editVersion = (cellEditVersions.get(mutationKey) || 0) + 1;
+                    cellEditVersions.set(mutationKey, editVersion);
+                    const save = mutationQueue.then(update);
+                    mutationQueue = save.catch(() => {});
+                    cellMutationPromises.set(mutationKey, save);
+                    save
+                        .then(() => {
+                            const savedValue = String(value ?? '');
+                            persistedCellValues.set(mutationKey, savedValue);
+                            if (!isHistoryChange) {
+                                undoStack.push({
+                                    itemID: record.item_id,
+                                    col,
+                                    oldValue: persistedValue,
+                                    value: savedValue
+                                });
+                                redoStack.length = 0;
+                            }
+                            showTip(`✓ 数据库实时同步成功 (物料ID: ${record.item_id})`);
+                        })
+                        .catch(err => {
+                            if (
+                                cellEditVersions.get(mutationKey) === editVersion &&
+                                String(tableInstance.getCellValue(col, row) ?? '') === String(value ?? '')
+                            ) {
+                                tableInstance.changeCellValue(col, row, persistedValue, false, false);
+                            }
+                            console.error('单元格实时同步失败:', err);
+                            showTip(`单元格同步失败：${err.message}`, true);
+                        })
+                        .finally(() => {
+                            if (cellMutationPromises.get(mutationKey) === save) {
+                                cellMutationPromises.delete(mutationKey);
+                            }
+                        });
+                });
 
-                    postJSON('/api/bom/update-cell', {
-                        item_id: record.item_id,
-                        color_code: colorCode,
-                        field_type: fieldType,
-                        value: value || ''
-                    })
-                    .then(() => showTip(`✓ 数据库实时同步成功 (物料ID: ${record.item_id})`))
-                    .catch(err => {
-                        console.error('单元格实时同步失败:', err);
-                        showTip(`单元格同步失败：${err.message}`, true);
-                    });
+                tableInstance.on('click_cell', ({ col, row }) => {
+                    if (row > 0) {
+                        selectedBodyCell = { col, row };
+                    } else if (col >= 3) {
+                        const range = tableInstance.getCellRange(col, row);
+                        const rect = tableInstance.getCellRangeRelativeRect(range);
+                        const input = document.createElement('input');
+                        input.className = 'bom-header-editor';
+                        input.value = String(columns[col].title ?? '');
+                        input.style.left = `${rect.left}px`;
+                        input.style.top = `${rect.top}px`;
+                        input.style.width = `${rect.width}px`;
+                        input.style.height = `${rect.height}px`;
+                        document.getElementById('bom-table').appendChild(input);
+                        input.focus();
+                        input.select();
+
+                        let finished = false;
+                        const finish = save => {
+                            if (finished) return;
+                            finished = true;
+                            const newTitle = input.value.trim();
+                            input.remove();
+                            if (save && newTitle && newTitle !== columns[col].title) {
+                                tableInstance.changeCellValue(col, row, newTitle);
+                            }
+                        };
+                        input.addEventListener('keydown', event => {
+                            if (event.key === 'Enter') finish(true);
+                            else if (event.key === 'Escape') finish(false);
+                        });
+                        input.addEventListener('blur', () => finish(true));
+                    }
                 });
 
                 const copyCell = async cell => {
                     clipboardValue = String(tableInstance.getCellValue(cell.col, cell.row) ?? '');
                     hasClipboardValue = true;
                     if (navigator.clipboard && window.isSecureContext) {
-                        await navigator.clipboard.writeText(clipboardValue);
+                        try {
+                            await navigator.clipboard.writeText(clipboardValue);
+                        } catch (err) {
+                            console.warn('系统剪贴板不可用，已保留表格内复制内容:', err);
+                            showTip('✓ 已复制单元格（可在表格内粘贴）');
+                            return;
+                        }
                     }
                     showTip('✓ 已复制单元格');
                 };
@@ -246,22 +925,115 @@
                     }
                     tableInstance.changeCellValue(cell.col, cell.row, clipboardValue);
                 };
-                const applyHistory = (from, to, value) => {
-                    const change = from.pop();
+                const applyHistory = async (from, to, value) => {
+                    if (historyActionInProgress) return;
+                    const change = from[from.length - 1];
                     if (!change) return;
                     const rowIndex = records.findIndex(record => record.item_id === change.itemID);
                     if (rowIndex < 0) {
-                        from.push(change);
                         showTip('无法撤销：对应物料行已不存在', true);
                         return;
                     }
+                    historyActionInProgress = true;
+                    const targetValue = value(change);
+                    const mutationKey = `${change.itemID}:${columns[change.col].field}`;
                     applyingHistory = true;
                     try {
-                        tableInstance.changeCellValue(change.col, rowIndex + 1, value(change));
+                        tableInstance.changeCellValue(change.col, rowIndex + 1, targetValue);
                     } finally {
                         applyingHistory = false;
                     }
-                    to.push(change);
+                    try {
+                        await cellMutationPromises.get(mutationKey);
+                        from.pop();
+                        to.push(change);
+                    } catch {
+                        showTip('撤销/重做未能同步到数据库，请重试', true);
+                    } finally {
+                        historyActionInProgress = false;
+                    }
+                };
+                const createCellActions = cell => [
+                    { label: '复制单元格', run: () => copyCell(cell) },
+                    { label: '粘贴到单元格', run: () => pasteCell(cell) },
+                    { label: '撤销', run: () => applyHistory(undoStack, redoStack, change => change.oldValue) },
+                    { label: '重做', run: () => applyHistory(redoStack, undoStack, change => change.value) }
+                ];
+                const createRowActions = cell => {
+                    const rowIndex = cell ? getRowIndex(cell) : -1;
+                    const record = records.length && cell ? getRecord(cell) : null;
+                    const insertRow = position => async () => {
+                        await waitForPendingWrites();
+                        const request = { position };
+                        if (record && record.item_id && rowIndex >= 0) request.anchor_item_id = record.item_id;
+                        const result = await postJSON('/api/bom/add-row', request);
+                        if (!result.success || !result.item_id) throw new Error('新增物料接口未返回物料编号');
+                        location.reload();
+                    };
+                    const actions = [
+                        { label: '上方插入行', run: insertRow('above') },
+                        { label: '下方插入行', run: insertRow('below') }
+                    ];
+                    if (record && record.item_id) {
+                        actions.push({
+                            label: '删除当前行',
+                            run: async () => {
+                                if (!confirm('确定要删除当前物料行及其关联明细吗？')) return;
+                                await waitForPendingWrites();
+                                await postJSON('/api/bom/delete-row', { item_id: record.item_id });
+                                location.reload();
+                            }
+                        });
+                        return actions.concat(createCellActions(cell));
+                    }
+                    return actions;
+                };
+                const createColumnActions = (cell, emptyAnchor = false) => {
+                    const field = cell && columns[cell.col] && columns[cell.col].field;
+                    const anchorColorCode = field && field.endsWith('_color')
+                        ? field.slice(0, -'_color'.length)
+                        : field && field.endsWith('_process')
+                            ? field.slice(0, -'_process'.length)
+                            : '';
+                    const standalone = anchorColorCode && processColumns[anchorColorCode] === false;
+                    if (!anchorColorCode && !emptyAnchor) return [];
+
+                    const addColumn = (position, singleColumn) => async () => {
+                        const existingCodes = new Set(colorCodes.map(code => code.toLowerCase()));
+                        let suffix = 1;
+                        while (existingCodes.has(`new_color_${suffix}`)) suffix++;
+                        await waitForPendingWrites();
+                        const request = {
+                            color_code: `NEW_COLOR_${suffix}`,
+                            position,
+                            has_process: !singleColumn
+                        };
+                        if (anchorColorCode) request.anchor_color_code = anchorColorCode;
+                        await postJSON('/api/bom/add-column', request);
+                        location.reload();
+                    };
+                    const actions = [
+                        { label: '上方插入列', run: addColumn('above', Boolean(standalone || emptyAnchor)) },
+                        { label: '下方插入列', run: addColumn('below', Boolean(standalone || emptyAnchor)) }
+                    ];
+                    if (anchorColorCode) {
+                        actions.push({
+                            label: '删除当前列',
+                            run: async () => {
+                                const description = standalone
+                                    ? `确定要删除空白列「${anchorColorCode}」吗？`
+                                    : `确定要删除配色「${anchorColorCode}」及其颜色规格和 Process 两列吗？`;
+                                if (!confirm(description)) return;
+                                await waitForPendingWrites();
+                                await postJSON('/api/bom/delete-column', { color_code: anchorColorCode });
+                                location.reload();
+                            }
+                        });
+                    }
+                    if (cell && selectedBodyCell && getRowIndex(selectedBodyCell) >= 0) {
+                        actions.push(...createCellActions(selectedBodyCell));
+                    }
+                    return actions;
                 };
 
                 const contextMenu = document.createElement('div');
@@ -305,143 +1077,273 @@
                 });
                 window.addEventListener('resize', hideContextMenu);
 
-                document.getElementById('bom-table').addEventListener('contextmenu', event => {
-                    const cell = tableInstance.getCellAt(event.clientX, event.clientY);
-                    if (!cell) return;
+                tableContainer.addEventListener('contextmenu', event => {
+                    const containerRect = tableContainer.getBoundingClientRect();
+                    const cell = tableInstance.getCellAt(
+                        event.clientX - containerRect.left,
+                        event.clientY - containerRect.top
+                    );
+                    const isHeader = event.clientY < containerRect.top + 40;
+                    if (!cell && records.length !== 0) return;
                     event.preventDefault();
                     event.stopPropagation();
 
-                    if (cell.row === 0 && dynamicColumn(cell.col)) {
-                        const column = columns[cell.col];
-                        const oldTitle = column.title;
-                        showContextMenu(event, [
-                            {
-                                label: '编辑列名',
-                                run: async () => {
-                            const newTitle = prompt(`请输入列 [${oldTitle}] 的新名称：`, oldTitle);
-                            if (!newTitle || !newTitle.trim() || newTitle.trim() === oldTitle) return;
-
-                            const trimmedTitle = newTitle.trim();
-                            column.title = trimmedTitle;
-                            tableInstance.updateColumns(columns);
-                            if (column.field.endsWith('_color')) {
-                                const colorCode = column.field.slice(0, -'_color'.length);
-                                postJSON('/api/bom/update-column', { old_code: colorCode, new_code: trimmedTitle })
-                                    .then(() => {
-                                        showTip(`✓ 列名已从 [${colorCode}] 修改为 [${trimmedTitle}] 并同步至数据库！`);
-                                        setTimeout(() => location.reload(), 1000);
-                                    })
-                                    .catch(err => {
-                                        column.title = oldTitle;
-                                        tableInstance.updateColumns(columns);
-                                        console.error('列名同步失败:', err);
-                                        showTip(`列名同步失败：${err.message}`, true);
-                                    });
-                            }
-                                }
-                            },
-                            {
-                                label: '左侧插入列',
-                                run: async () => {
-                                    const colorCode = prompt('请输入新列名称：', `3WH${Math.floor(Math.random() * 90000000 + 10000000)}`);
-                                    if (colorCode && colorCode.trim()) {
-                                        await reloadAfter('/api/bom/add-column', { color_code: colorCode.trim() });
-                                    }
-                                }
-                            },
-                            {
-                                label: '右侧插入列',
-                                run: async () => {
-                                    const colorCode = prompt('请输入新列名称：', `3WH${Math.floor(Math.random() * 90000000 + 10000000)}`);
-                                    if (colorCode && colorCode.trim()) {
-                                        await reloadAfter('/api/bom/add-column', { color_code: colorCode.trim() });
-                                    }
-                                }
-                            },
-                            {
-                                label: '删除当前列',
-                                run: async () => {
-                                    if (!confirm(`确定要删除列 [${oldTitle}] 及其关联数据吗？`)) return;
-                                    const colorCode = column.field.endsWith('_process')
-                                        ? column.field.slice(0, -'_process'.length)
-                                        : column.field.slice(0, -'_color'.length);
-                                    await reloadAfter('/api/bom/delete-column', { color_code: colorCode });
-                                }
-                            }
-                        ]);
+                    if (isHeader) {
+                        if (colorCodes.length === 0) {
+                            showContextMenu(event, createColumnActions(cell, true));
+                            return;
+                        }
+                        if (!cell || cell.col < 3) {
+                            hideContextMenu();
+                            return;
+                        }
+                        showContextMenu(event, createColumnActions(cell));
                         return;
                     }
 
-                    if (cell.row === 0) {
-                        hideContextMenu();
+                    if (records.length === 0) {
+                        showContextMenu(event, createRowActions(null));
                         return;
                     }
                     const rowIndex = getRowIndex(cell);
                     if (rowIndex < 0) return;
+                    selectedBodyCell = { col: cell.col, row: cell.row };
+                    showContextMenu(event, createRowActions(cell));
+                });
 
-                    const actions = [];
-                    if (!dynamicColumn(cell.col)) {
-                        actions.push(
-                            {
-                                label: '上方插入行',
-                                run: async () => {
-                                    const result = await postJSON('/api/bom/add-row', {
-                                        part_name: 'NEW PART',
-                                        material_desc: 'NEW MATERIAL',
-                                        unit: 'MTR'
-                                    });
-                                    if (!result.success || !result.item_id) throw new Error('新增物料接口未返回物料编号');
-                                    const newRecord = {
-                                        item_id: result.item_id,
-                                        part_name: 'NEW PART',
-                                        material_desc: 'NEW MATERIAL',
-                                        unit: 'MTR',
-                                        ...Object.fromEntries(colorCodes.flatMap(code => [[code + '_color', ''], [code + '_process', '']]))
-                                    };
-                                    tableInstance.addRecord(newRecord, rowIndex);
-                                    records.splice(rowIndex, 0, newRecord);
+                const exportExcel = async () => {
+                    if (!tableInstance || typeof tableInstance.exportToExcel !== 'function') {
+                        throw new Error('VTable Excel 导出插件尚未就绪，请刷新页面重试');
+                    }
+                    const styleNo = document.getElementById('val-style-no').innerText.trim();
+                    if (!styleNo) throw new Error('Style No. 不能为空，无法生成 Excel 文件名');
+                    const safeStyleNo = styleNo.replace(/[\\/:*?"<>|]/g, '_');
+                    exportExcelOptions.fileName = safeStyleNo;
+                    exportExcelOptions.sheetName = safeStyleNo.replace(/[:\\/?*\[\]]/g, '_').slice(0, 31);
+                    await tableInstance.exportToExcel();
+                    showTip('✓ Excel 导出成功');
+                };
+                const importExcel = async file => {
+                    if (!file.name.toLowerCase().endsWith('.xlsx')) {
+                        throw new Error('VTable Excel 导入插件仅支持 .xlsx 文件，请先将文件另存为 .xlsx 格式');
+                    }
+                    const normalize = value => String(value ?? '').trim().toLowerCase().replace(/[\s.:：]/g, '');
+                    const cellText = value => {
+                        if (value === null || value === undefined) return '';
+                        if (typeof value === 'object') {
+                            if ('text' in value) return String(value.text ?? '');
+                            if ('result' in value) return String(value.result ?? '');
+                            if (Array.isArray(value.richText)) {
+                                return value.richText.map(part => part.text || '').join('');
+                            }
+                        }
+                        return String(value);
+                    };
+                    const workbook = new ExcelJS.Workbook();
+                    await workbook.xlsx.load(await file.arrayBuffer());
+                    const bomWorksheet = workbook.getWorksheet('BOM') || workbook.worksheets[0];
+                    if (!bomWorksheet) throw new Error('Excel 文件中没有工作表');
+
+                    const expectedHeaders = columns.slice(0, 3).map(column => normalize(column.title));
+                    let bomHeaderRow = 0;
+                    bomWorksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+                        if (bomHeaderRow) return;
+                        const values = row.values.slice(1);
+                        if (expectedHeaders.every((title, index) => normalize(cellText(values[index])) === title)) {
+                            bomHeaderRow = rowNumber;
+                        }
+                    });
+                    if (!bomHeaderRow) {
+                        throw new Error(`未找到 BOM 表头（${columns[0].title}、${columns[1].title}、${columns[2].title}）`);
+                    }
+
+                    const importHeader = Object.fromEntries(
+                        [...headerFields, ...footerFields].map(field => [
+                            field.dataset.headerField || field.dataset.footerField,
+                            ''
+                        ])
+                    );
+                    const fieldByLabel = Object.fromEntries(
+                        Object.entries({ ...headerLabels, ...excelHeaderLabels })
+                            .map(([field, label]) => [normalize(label), field])
+                    );
+                    const footerFieldByLabel = Object.fromEntries(
+                        Object.entries(excelFooterLabels)
+                            .map(([field, label]) => [normalize(label), field])
+                    );
+                    if (bomHeaderRow > 2) {
+                        const titleRows = [];
+                        for (let rowNumber = 1; rowNumber < bomHeaderRow; rowNumber++) {
+                            const row = bomWorksheet.getRow(rowNumber);
+                            const firstValue = cellText(row.getCell(1).value).trim();
+                            if (firstValue && !fieldByLabel[normalize(firstValue)]) {
+                                titleRows.push(firstValue);
+                            }
+                            for (let colNumber = 1; colNumber <= row.cellCount; colNumber++) {
+                                const labelText = row.getCell(colNumber).text.trim();
+                                const field = fieldByLabel[normalize(labelText)];
+                                if (field && colNumber < row.cellCount) {
+                                    importHeader[field] = row.getCell(colNumber + 1).text;
+                                    continue;
                                 }
-                            },
-                            {
-                                label: '下方插入行',
-                                run: async () => {
-                                    const result = await postJSON('/api/bom/add-row', {
-                                        part_name: 'NEW PART',
-                                        material_desc: 'NEW MATERIAL',
-                                        unit: 'MTR'
-                                    });
-                                    if (!result.success || !result.item_id) throw new Error('新增物料接口未返回物料编号');
-                                    const insertAt = rowIndex + 1;
-                                    const newRecord = {
-                                        item_id: result.item_id,
-                                        part_name: 'NEW PART',
-                                        material_desc: 'NEW MATERIAL',
-                                        unit: 'MTR',
-                                        ...Object.fromEntries(colorCodes.flatMap(code => [[code + '_color', ''], [code + '_process', '']]))
-                                    };
-                                    tableInstance.addRecord(newRecord, insertAt);
-                                    records.splice(insertAt, 0, newRecord);
-                                }
-                            },
-                            {
-                                label: '删除当前行',
-                                run: async () => {
-                                    const record = getRecord(cell);
-                                    if (!record || !record.item_id || !confirm('确定要删除当前物料行及其关联明细吗？')) return;
-                                    await postJSON('/api/bom/delete-row', { item_id: record.item_id });
-                                    tableInstance.deleteRecords([rowIndex]);
-                                    records.splice(rowIndex, 1);
+                                const separatorIndex = labelText.search(/[:：]/);
+                                if (separatorIndex > 0) {
+                                    const inlineField = fieldByLabel[normalize(labelText.slice(0, separatorIndex))];
+                                    if (inlineField) {
+                                        importHeader[inlineField] = labelText.slice(separatorIndex + 1).trim();
+                                    }
                                 }
                             }
-                        );
+                        }
+                        if (titleRows.length) importHeader.company_name = titleRows[0];
                     }
-                    actions.push(
-                        { label: '复制单元格', run: () => copyCell(cell) },
-                        { label: '粘贴到单元格', run: () => pasteCell(cell) },
-                        { label: '撤销', run: () => applyHistory(undoStack, redoStack, change => change.oldValue) },
-                        { label: '重做', run: () => applyHistory(redoStack, undoStack, change => change.value) }
+                    let firstFooterRow = bomWorksheet.rowCount + 1;
+                    bomWorksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+                        for (let colNumber = 1; colNumber <= row.cellCount; colNumber++) {
+                            const cellValue = cellText(row.getCell(colNumber).value).trim();
+                            const normalizedCell = normalize(cellValue);
+                            for (const [normalizedLabel, field] of Object.entries(footerFieldByLabel)) {
+                                if (!normalizedCell.startsWith(normalizedLabel)) continue;
+                                firstFooterRow = Math.min(firstFooterRow, rowNumber);
+                                const label = excelFooterLabels[field];
+                                const suffix = cellValue.startsWith(label)
+                                    ? cellValue.slice(label.length).trim()
+                                    : '';
+                                const nextCellValue = cellText(row.getCell(colNumber + 1).value).trim();
+                                const nextCellIsLabel = Object.keys(footerFieldByLabel)
+                                    .some(candidate => normalize(nextCellValue).startsWith(candidate));
+                                importHeader[field] = suffix || (nextCellIsLabel ? '' : nextCellValue);
+                                break;
+                            }
+                        }
+                    });
+                    const legacyHeaderWorksheet = workbook.getWorksheet('鞋款信息');
+                    if (legacyHeaderWorksheet) {
+                        legacyHeaderWorksheet.eachRow((row, rowNumber) => {
+                            if (rowNumber === 1 && normalize(row.getCell(1).text) === 'field') return;
+                            const field = fieldByLabel[normalize(row.getCell(1).text)];
+                            if (field) importHeader[field] = row.getCell(2).text;
+                        });
+                    }
+
+                    const bomWorkbook = new ExcelJS.Workbook();
+                    const copiedWorksheet = bomWorkbook.addWorksheet('BOM');
+                    bomWorksheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+                        if (rowNumber >= bomHeaderRow && rowNumber < firstFooterRow) {
+                            copiedWorksheet.addRow(row.values.slice(1));
+                        }
+                    });
+                    const buffer = await bomWorkbook.xlsx.writeBuffer();
+                    const importFile = new File([buffer], 'BOM.xlsx', {
+                        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                    });
+                    if (typeof VTablePlugins.ExcelImportPlugin.importExcelToVTableData !== 'function') {
+                        throw new Error('VTable Excel 导入插件尚未就绪，请刷新页面重试');
+                    }
+                    const importedData = await VTablePlugins.ExcelImportPlugin.importExcelToVTableData(
+                        importFile,
+                        { headerRowCount: 1 }
                     );
-                    showContextMenu(event, actions);
+                    const headers = importedData.columns.map(column => String(column.title ?? ''));
+                    const matrix = [
+                        headers,
+                        ...importedData.records.map(record =>
+                            headers.map((_, index) => cellText(record[`col${index}`]))
+                        )
+                    ];
+                    if (
+                        normalize(headers[0]) !== normalize(columns[0].title) ||
+                        normalize(headers[1]) !== normalize(columns[1].title) ||
+                        normalize(headers[2]) !== normalize(columns[2].title)
+                    ) {
+                        throw new Error(`表头格式不匹配，请使用本系统导出的 Excel 模板（${columns[0].title}、${columns[1].title}、${columns[2].title}）`);
+                    }
+
+                    const rowIDIndex = headers.findIndex((header, index) => index >= 3 && normalize(header) === '__row_id');
+                    const dynamicEnd = rowIDIndex >= 0 ? rowIDIndex : headers.length;
+                    if (dynamicEnd < 4) throw new Error('BOM 中至少需要一个配色或空白列');
+                    const importedColumns = [];
+                    const importedProcessColumns = [];
+                    const importedColumnIndexes = [];
+                    for (let index = 3; index < dynamicEnd;) {
+                        const colorCode = String(headers[index] ?? '').trim();
+                        if (!colorCode) throw new Error(`第 ${index + 1} 列标题为空`);
+                        const hasProcess = index + 1 < dynamicEnd &&
+                            normalize(String(headers[index + 1] ?? '').trim()) === normalize('Process');
+                        if (new TextEncoder().encode(colorCode).length > 100) {
+                            throw new Error(`配色代码过长：${colorCode}`);
+                        }
+                        if (importedColumns.some(code => code.toLowerCase() === colorCode.toLowerCase())) {
+                            throw new Error(`配色代码重复：${colorCode}`);
+                        }
+                        importedColumns.push(colorCode);
+                        importedProcessColumns.push(hasProcess);
+                        importedColumnIndexes.push(index);
+                        index += hasProcess ? 2 : 1;
+                    }
+                    if (importedColumns.length > 100) throw new Error('配色列最多支持 100 个');
+
+                    const importedRows = matrix.slice(1)
+                        .filter(row => row.some(value => String(value ?? '').trim() !== ''))
+                        .map(row => {
+                            const colorDetails = {};
+                            importedColumns.forEach((code, index) => {
+                                const colorIndex = importedColumnIndexes[index];
+                                colorDetails[code] = {
+                                    color_desc: String(row[colorIndex] ?? ''),
+                                    process_desc: importedProcessColumns[index]
+                                        ? String(row[colorIndex + 1] ?? '')
+                                        : ''
+                                };
+                            });
+                            return {
+                                part_name: String(row[0] ?? ''),
+                                material_desc: String(row[1] ?? ''),
+                                unit: String(row[2] ?? ''),
+                                color_details: colorDetails
+                            };
+                        });
+
+                    if (!importedRows.length) throw new Error('Excel 中没有可导入的物料行');
+                    if (importedRows.length > 10000) throw new Error('物料行最多支持 10000 行');
+                    if (!confirm(`即将全量替换当前 BOM：导入 ${importedRows.length} 行物料、${importedColumns.length} 个配色及鞋款表头信息。现有物料、配色及明细将被替换，是否继续？`)) return;
+                    await waitForPendingWrites();
+                    const result = await postJSON('/api/bom/import', {
+                        header: importHeader,
+                        columns: importedColumns,
+                        process_columns: importedProcessColumns,
+                        rows: importedRows
+                    });
+                    if (!result.success) throw new Error('服务器未能完成 Excel 导入');
+                    showTip(`✓ Excel 导入成功：${result.rows} 行，${result.columns} 个配色`);
+                    const url = new URL(location.href);
+                    url.searchParams.set('bom_id', result.bom_id);
+                    location.assign(url);
+                };
+
+                document.getElementById('export-excel-btn').addEventListener('click', () => {
+                    try {
+                        exportExcel().catch(err => {
+                            console.error('Excel 导出失败:', err);
+                            showTip(`Excel 导出失败：${err.message}`, true);
+                        });
+                    } catch (err) {
+                        console.error('Excel 导出失败:', err);
+                        showTip(`Excel 导出失败：${err.message}`, true);
+                    }
+                });
+                document.getElementById('import-excel-file').addEventListener('change', async event => {
+                    const input = event.currentTarget;
+                    const file = input.files && input.files[0];
+                    if (!file) return;
+                    try {
+                        await importExcel(file);
+                    } catch (err) {
+                        console.error('Excel 导入失败:', err);
+                        showTip(`Excel 导入失败：${err.message}`, true);
+                    } finally {
+                        input.value = '';
+                    }
                 });
             })
             .catch(err => {
@@ -449,10 +1351,45 @@
                 alert(`加载 BOM 矩阵数据失败：${err.message || err}，请按 F12 检查控制台。`);
             });
 
-        document.getElementById('save-btn').addEventListener('click', () => {
-            const tip = document.getElementById('status-tip');
-            tip.innerText = "✓ 所有整单数据已实时同步至 MariaDB 数据库！";
-            setTimeout(() => { tip.innerText = ""; }, 4000);
+        document.getElementById('save-btn').addEventListener('click', async () => {
+            if (createMode) {
+                const header = getVisibleHeaderData();
+                header.style_no = header.style_no.trim();
+                if (!/^[A-Za-z0-9_-]{1,64}$/.test(header.style_no) ||
+                    ['_unassigned_', 'bom_parts', 'bom_item', 'bom_colorway', 'bom_item_color_detail']
+                        .includes(header.style_no.toLowerCase())) {
+                    showHeaderStatus('请输入有效的 Style No.（1–64 位字母、数字、下划线或连字符）', true);
+                    document.getElementById('val-style-no').focus();
+                    return;
+                }
+                if (!confirm(`确定新增 Style No. ${header.style_no} 吗？`)) return;
+                try {
+                    const response = await fetch('/api/bom/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ header })
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || `新增失败 (${response.status})`);
+                    const url = new URL(location.href);
+                    url.searchParams.delete('new');
+                    url.searchParams.delete('return_bom_id');
+                    url.searchParams.set('bom_id', String(result.bom_id));
+                    location.assign(url);
+                } catch (err) {
+                    console.error('新增鞋款失败:', err);
+                    showHeaderStatus(`新增失败：${err.message}`, true);
+                }
+                return;
+            }
+            Promise.all([...headerFields, ...footerFields].map(saveHeaderField))
+                .then(results => {
+                    if (results.every(Boolean)) showHeaderStatus('✓ 鞋款表头已同步至数据库');
+                });
+        });
+
+        document.getElementById('import-excel-btn').addEventListener('click', () => {
+            document.getElementById('import-excel-file').click();
         });
     </script>
 </body>
