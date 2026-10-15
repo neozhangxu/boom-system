@@ -82,6 +82,8 @@
                 <button class="button" id="add-row" type="button">新增物料行</button>
                 <button class="button danger" id="delete-row" type="button" disabled>删除选中行</button>
                 <button class="button secondary" id="import-table" type="button">导入 Excel/CSV</button>
+                <button class="button secondary" id="export-xlsx" type="button">导出 Excel</button>
+                <button class="button secondary" id="export-csv" type="button">导出 CSV</button>
                 <label>编辑模式
                     <select id="edit-mode">
                         <option value="cell">单元格编辑</option>
@@ -122,7 +124,7 @@
         return;
     }
 
-    const { createApp, h, reactive, VxeTable, ExcelJS } = vendor;
+    const { createApp, h, reactive, VxeUI, VxeTable, ExcelJS } = vendor;
     const VxeTableComponent = VxeTable.VxeTable;
     const VxeColumnComponent = VxeTable.VxeColumn;
     const VxeToolbarComponent = VxeTable.VxeToolbar;
@@ -178,6 +180,8 @@
     let selectedRow = null;
     let gridTable = null;
     let gridToolbar = null;
+    let connectedTable = null;
+    let connectedToolbar = null;
     let writeQueue = Promise.resolve();
     let savedHeader = {};
     let savedFooter = {};
@@ -264,7 +268,22 @@
     const editableFields = columns.filter(column => column.editable).map(column => column.field);
     let savedRowValues = new Map();
     const connectToolbar = () => {
-        if (gridTable && gridToolbar) gridTable.connectToolbar(gridToolbar);
+        if (gridTable && gridToolbar &&
+            (gridTable !== connectedTable || gridToolbar !== connectedToolbar)) {
+            connectedTable = gridTable;
+            connectedToolbar = gridToolbar;
+            gridTable.connectToolbar(gridToolbar);
+        }
+    };
+    const setGridTable = instance => {
+        gridTable = instance;
+        if (!instance) connectedTable = null;
+        connectToolbar();
+    };
+    const setGridToolbar = instance => {
+        gridToolbar = instance;
+        if (!instance) connectedToolbar = null;
+        connectToolbar();
     };
     const categoryFilters = categoryNames.map(([value, label]) => ({ label, value }));
     const saveFile = (filename, type, content) => gridTable.saveFile({ filename, type, content });
@@ -292,7 +311,7 @@
                 if (field === 'category') return row.category;
                 return row[field] ?? '';
             }));
-            const filename = `${options.filename || activeStyleNo || 'BOM'}.${options.type}`;
+            const filename = options.filename || activeStyleNo || 'BOM';
             if (options.type === 'csv') {
                 const csvCell = value => {
                     const text = String(value ?? '');
@@ -423,10 +442,7 @@
     const gridApp = createApp({
         render() {
             const table = h(VxeTableComponent, {
-                ref: instance => {
-                    gridTable = instance;
-                    connectToolbar();
-                },
+                ref: setGridTable,
                 id: 'bom-materials',
                 data: gridState.rows,
                 border: true,
@@ -522,10 +538,7 @@
                 ]
             });
             const toolbar = h(VxeToolbarComponent, {
-                ref: instance => {
-                    gridToolbar = instance;
-                    connectToolbar();
-                },
+                ref: setGridToolbar,
                 custom: true,
                 export: true,
                 print: true,
@@ -539,6 +552,8 @@
         console.error('Vxe-Table 渲染失败', error);
     };
     try {
+        gridApp.use(VxeUI);
+        gridApp.use(VxeTable);
         gridApp.mount('#bom-table');
     } catch (error) {
         showStatus(`表格初始化失败：${error.message}`, true);
@@ -625,11 +640,10 @@
             Object.fromEntries(editableFields.map(field => [field, row[field] ?? '']))
         ]));
         gridTable?.clearCheckboxRow();
-        await gridTable?.setAllTreeExpand(true);
         selectedRow = null;
         deleteRowButton.disabled = true;
         document.title = `${header.style_no} - ${header.style_name || 'BOM'}`;
-        showStatus(`${gridState.rows.length} 行物料已加载`);
+        showStatus(`${flatMaterialRows(gridState.rows).length} 行物料已加载`);
     }
 
     async function persistEditedCell({ row, column }) {
@@ -807,6 +821,27 @@
             importMethod: importTableFile
         }).catch(error => showStatus(`导入失败：${error.message || '文件未能处理'}`, true));
     });
+
+    const exportCurrentTable = async type => {
+        if (!activeStyleNo) {
+            showStatus('请先选择鞋款', true);
+            return;
+        }
+        try {
+            await exportTableFile({
+                options: {
+                    data: gridState.rows,
+                    filename: activeStyleNo,
+                    type
+                }
+            });
+            showStatus(`已导出 ${type === 'xlsx' ? 'Excel' : 'CSV'}`);
+        } catch (error) {
+            showStatus(`导出失败：${error.message}`, true);
+        }
+    };
+    document.getElementById('export-xlsx').addEventListener('click', () => exportCurrentTable('xlsx'));
+    document.getElementById('export-csv').addEventListener('click', () => exportCurrentTable('csv'));
 
     async function start() {
         try {

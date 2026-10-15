@@ -5,8 +5,6 @@ import 'vxe-pc-ui/lib/style.css';
 import 'vxe-table/lib/style.css';
 import ExcelJS from 'exceljs';
 
-VxeUI.use(VxeTable);
-
 window.BOMVendor = {
   createApp,
   h,
