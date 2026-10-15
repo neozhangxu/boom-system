@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>鞋款 BOM 管理系统</title>
     <link rel="stylesheet" href="/static/build/boom-system-frontend.css">
-    <script src="/static/build/bom-vendor.js"></script>
     <style>
         :root { font-family: Arial, "Microsoft YaHei", sans-serif; color: #1f2937; background: #f3f5f8; font-size: 13px; }
         * { box-sizing: border-box; }
@@ -91,7 +90,7 @@
                     </select>
                 </label>
                 <button class="button danger" id="delete-style" type="button">删除鞋款</button>
-                <span id="status" aria-live="polite"></span>
+                <span id="status" aria-live="polite">正在加载前端组件…</span>
             </div>
             <div id="bom-table"></div>
         </section>
@@ -113,6 +112,7 @@
     </form>
 </div>
 
+<script src="/static/build/bom-vendor.js" onerror="document.getElementById('status').textContent='前端组件加载失败，请检查 /static/build/bom-vendor.js'; document.getElementById('status').classList.add('error')"></script>
 <script>
 (() => {
     'use strict';
@@ -304,7 +304,7 @@
         'Category', 'No.', 'Parts', 'Material Description', 'Unit', 'Supplier', 'Remark',
         ...Array.from({ length: colorColumnCount }, (_, index) => [`Color ${index + 1}`, `Process ${index + 1}`]).flat()
     ];
-    async function exportTableFile({ options }) {
+    async function exportTableFile(options) {
         try {
             const rows = flatMaterialRows(options.data);
             const data = rows.map(row => exportFields.map(field => {
@@ -488,18 +488,6 @@
                 checkboxConfig: { checkMethod: ({ row }) => !!row.item_id },
                 columnConfig: { resizable: true },
                 customConfig: { enabled: true, storage: true, allowFixed: true },
-                exportConfig: {
-                    types: ['xlsx', 'csv'],
-                    mode: 'current',
-                    filename: () => activeStyleNo || 'BOM',
-                    exportMethod: exportTableFile
-                },
-                importConfig: {
-                    types: ['xlsx', 'csv'],
-                    remote: true,
-                    message: false,
-                    importMethod: importTableFile
-                },
                 printConfig: { mode: 'current', isFooter: true },
                 onCellClick: ({ row }) => {
                     selectedRow = row.item_id ? row : null;
@@ -540,7 +528,6 @@
             const toolbar = h(VxeToolbarComponent, {
                 ref: setGridToolbar,
                 custom: true,
-                export: true,
                 print: true,
                 perfect: true
             });
@@ -829,11 +816,9 @@
         }
         try {
             await exportTableFile({
-                options: {
-                    data: gridState.rows,
-                    filename: activeStyleNo,
-                    type
-                }
+                data: gridState.rows,
+                filename: activeStyleNo,
+                type
             });
             showStatus(`已导出 ${type === 'xlsx' ? 'Excel' : 'CSV'}`);
         } catch (error) {
