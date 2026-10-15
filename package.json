@@ -5,12 +5,15 @@
     "build": "vite build --config vite.config.mjs"
   },
   "dependencies": {
-    "@visactor/vtable": "1.26.8",
-    "@visactor/vtable-editors": "1.26.8",
-    "@visactor/vtable-plugins": "1.26.8",
-    "exceljs": "4.4.0"
+    "exceljs": "4.4.0",
+    "vue": "3.5.44",
+    "vxe-pc-ui": "4.20.1",
+    "vxe-table": "4.22.4"
   },
   "devDependencies": {
-    "vite": "5.4.14"
+    "vite": "8.3.4"
+  },
+  "overrides": {
+    "uuid": "11.1.1"
   }
 }

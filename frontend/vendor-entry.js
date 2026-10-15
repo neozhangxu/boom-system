@@ -1,11 +1,17 @@
-import * as VTable from '@visactor/vtable';
-import * as VTableEditors from '@visactor/vtable-editors';
-import * as VTablePlugins from '@visactor/vtable-plugins';
+import { createApp, h, reactive } from 'vue';
+import VxeUI from 'vxe-pc-ui';
+import * as VxeTable from 'vxe-table';
+import 'vxe-pc-ui/lib/style.css';
+import 'vxe-table/lib/style.css';
 import ExcelJS from 'exceljs';
 
-window.VTable = {
-  ...VTable,
-  editors: VTableEditors
+VxeUI.use(VxeTable);
+
+window.BOMVendor = {
+  createApp,
+  h,
+  reactive,
+  VxeUI,
+  VxeTable,
+  ExcelJS
 };
-window.VTablePlugins = VTablePlugins;
-window.ExcelJS = ExcelJS;
