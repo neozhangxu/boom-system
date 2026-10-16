@@ -34,6 +34,18 @@
         .button.secondary { background: #475569; }
         .button.danger { background: #dc2626; }
         .button:disabled { opacity: .55; cursor: not-allowed; }
+        .editable-column-title { border-bottom: 1px dashed #94a3b8; cursor: text; }
+        .column-title-editor { width: 100%; min-width: 60px; padding: 2px 4px; }
+        .row-context-menu { position: fixed; z-index: 30; min-width: 160px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; box-shadow: 0 8px 24px #0f172a26; }
+        .row-context-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 3px; background: white; color: #1f2937; text-align: left; }
+        .row-context-menu button:hover:not(:disabled) { background: #eff6ff; }
+        .row-context-menu button:disabled { color: #94a3b8; cursor: not-allowed; }
+        .row-context-menu .menu-danger { color: #b91c1c; }
+        .column-context-menu { position: fixed; z-index: 31; min-width: 140px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; box-shadow: 0 8px 24px #0f172a26; }
+        .column-context-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 3px; background: white; color: #1f2937; text-align: left; }
+        .column-context-menu button:hover:not(:disabled) { background: #eff6ff; }
+        .column-context-menu button:disabled { color: #94a3b8; cursor: not-allowed; }
+        .column-context-menu .menu-danger { color: #b91c1c; }
         #status { min-height: 19px; margin-left: auto; color: #047857; }
         #status.error { color: #b91c1c; }
         #bom-table { width: 100%; height: 620px; }
@@ -75,11 +87,6 @@
         </section>
         <section class="panel">
             <div class="toolbar">
-                <label>新增行分类
-                    <select id="new-row-category"></select>
-                </label>
-                <button class="button" id="add-row" type="button">新增物料行</button>
-                <button class="button danger" id="delete-row" type="button" disabled>删除选中行</button>
                 <button class="button secondary" id="import-table" type="button">导入 Excel/CSV</button>
                 <button class="button secondary" id="export-xlsx" type="button">导出 Excel</button>
                 <button class="button secondary" id="export-csv" type="button">导出 CSV</button>
@@ -110,6 +117,20 @@
             <button class="button" type="submit">创建</button>
         </div>
     </form>
+</div>
+
+<div id="row-context-menu" class="row-context-menu" role="menu" hidden>
+    <button type="button" role="menuitem" data-action="add-row">添加行</button>
+    <button type="button" role="menuitem" data-action="add-node">添加节点行</button>
+    <button type="button" role="menuitem" data-action="copy">复制</button>
+    <button type="button" role="menuitem" data-action="paste">粘贴</button>
+    <button type="button" role="menuitem" data-action="delete" class="menu-danger">删除</button>
+</div>
+<div id="column-context-menu" class="column-context-menu" role="menu" hidden>
+    <button type="button" role="menuitem" data-action="add">添加列</button>
+    <button type="button" role="menuitem" data-action="copy">复制</button>
+    <button type="button" role="menuitem" data-action="paste">粘贴</button>
+    <button type="button" role="menuitem" data-action="delete" class="menu-danger">删除</button>
 </div>
 
 <script src="/static/build/bom-vendor.js" onerror="document.getElementById('status').textContent='前端组件加载失败，请检查 /static/build/bom-vendor.js'; document.getElementById('status').classList.add('error')"></script>
@@ -161,7 +182,7 @@
     const colorColumnCount = 8;
     const gridState = reactive({ rows: [], editMode: 'cell' });
     const gridColumns = [
-        { field: 'category_label', title: '分类', width: 90, editable: false },
+        { field: 'category_label', title: '分类', width: 90 },
         { field: 'no', title: 'No.', width: 65 },
         { field: 'parts', title: 'Parts', width: 180 },
         { field: 'material_description', title: 'Material Description', width: 300 },
@@ -177,7 +198,6 @@
     }
 
     let activeStyleNo = new URL(location.href).searchParams.get('bom_id') || '';
-    let selectedRow = null;
     let gridTable = null;
     let gridToolbar = null;
     let connectedTable = null;
@@ -189,7 +209,6 @@
     const status = document.getElementById('status');
     const listStatus = document.getElementById('list-status');
     const styleList = document.getElementById('style-list');
-    const deleteRowButton = document.getElementById('delete-row');
     const bomQuery = () => `bom_id=${encodeURIComponent(activeStyleNo)}`;
     const styleURL = styleNo => {
         const url = new URL(location.href);
@@ -246,12 +265,6 @@
 
     headerDefinitions.forEach(field => makeField(field));
     footerDefinitions.forEach(field => makeField(field, '', document.getElementById('footer-fields')));
-    categoryNames.forEach(([value, label]) => {
-        const option = document.createElement('option');
-        option.value = value;
-        option.textContent = label;
-        document.getElementById('new-row-category').appendChild(option);
-    });
     const createFieldNames = headerDefinitions.filter(([field]) => field !== 'style_no');
     const createFields = document.getElementById('create-fields');
     const createStyleNoInput = makeField(['style_no', 'Style No.'], '', createFields);
@@ -261,11 +274,101 @@
     const fieldInput = field => document.querySelector(`#header-fields [data-field="${field}"]`);
     const footerInput = field => document.querySelector(`#footer-fields [data-field="${field}"]`);
 
-    const columns = gridColumns.map(column => ({
+    const fixedColumnFields = new Set([
+        'category_label', 'no', 'parts', 'material_description', 'unit', 'supplier', 'remark'
+    ]);
+    const columnTitleStorageKey = 'boom-bom-column-titles-v1';
+    let savedColumnTitles = {};
+    try {
+        const storedTitles = JSON.parse(localStorage.getItem(columnTitleStorageKey) || '{}');
+        if (storedTitles && typeof storedTitles === 'object' && !Array.isArray(storedTitles)) {
+            savedColumnTitles = storedTitles;
+        }
+    } catch (error) {
+        showStatus(`读取自定义列名失败：${error.message}`, true);
+    }
+    const columns = reactive(gridColumns.map(column => ({
         ...column,
-        editable: column.editable !== false
-    }));
-    const editableFields = columns.filter(column => column.editable).map(column => column.field);
+        title: typeof savedColumnTitles[column.field] === 'string' && savedColumnTitles[column.field].trim()
+            ? savedColumnTitles[column.field].trim()
+            : column.title,
+        editable: column.field !== 'category_label',
+        editableTitle: !fixedColumnFields.has(column.field)
+    })));
+    const customColumns = reactive([]);
+    const hiddenBuiltInColumns = reactive([]);
+    function syncCustomColumns(metadata, hiddenColumns = hiddenBuiltInColumns) {
+        hiddenBuiltInColumns.splice(0, hiddenBuiltInColumns.length, ...hiddenColumns);
+        columns.splice(0, columns.length, ...gridColumns.filter(column =>
+            !hiddenBuiltInColumns.includes(column.field)
+        ).map(column => ({
+            ...column,
+            title: typeof savedColumnTitles[column.field] === 'string' && savedColumnTitles[column.field].trim()
+                ? savedColumnTitles[column.field].trim()
+                : column.title,
+            editable: column.field !== 'category_label',
+            editableTitle: !fixedColumnFields.has(column.field)
+        })));
+        customColumns.splice(0, customColumns.length, ...metadata);
+        [...metadata].sort((left, right) => left.position - right.position).forEach(column => {
+            const field = `custom_${column.id}`;
+            columns.splice(Math.max(7, Math.min(column.position, columns.length)), 0, {
+                field,
+                title: column.title,
+                width: 180,
+                editable: true,
+                editableTitle: true,
+                customId: column.id
+            });
+        });
+    }
+    const columnTitleEdit = reactive({ field: '', value: '' });
+    const beginColumnTitleEdit = column => {
+        columnTitleEdit.field = column.field;
+        columnTitleEdit.value = column.title;
+    };
+    const finishColumnTitleEdit = async column => {
+        if (columnTitleEdit.field !== column.field) return;
+        const title = columnTitleEdit.value.trim();
+        columnTitleEdit.field = '';
+        if (!title) {
+            showStatus('列名不能为空', true);
+            return;
+        }
+        if (column.customId) {
+            try {
+                await queueWrite(() => postJSON('/api/bom/custom-column', {
+                    action: 'rename',
+                    column_id: column.customId,
+                    title
+                }));
+                column.title = title;
+                const metadata = customColumns.map(item => item.id === column.customId
+                    ? { ...item, title }
+                    : { ...item });
+                syncCustomColumns(metadata);
+                showStatus('自定义列名已保存到 PostgreSQL');
+            } catch (error) {
+                showStatus(`保存自定义列名失败：${error.message}`, true);
+            }
+            return;
+        }
+        const previous = column.title;
+        const previousSavedTitle = savedColumnTitles[column.field];
+        column.title = title;
+        try {
+            savedColumnTitles[column.field] = title;
+            localStorage.setItem(columnTitleStorageKey, JSON.stringify(savedColumnTitles));
+        } catch (error) {
+            column.title = previous;
+            if (previousSavedTitle === undefined) delete savedColumnTitles[column.field];
+            else savedColumnTitles[column.field] = previousSavedTitle;
+            showStatus(`保存自定义列名失败：${error.message}`, true);
+            return;
+        }
+        showStatus('列名已保存到当前浏览器');
+    };
+    const editableFields = () => columns.filter(column => column.editable).map(column => column.field);
     let savedRowValues = new Map();
     const connectToolbar = () => {
         if (gridTable && gridToolbar &&
@@ -296,34 +399,34 @@
         visit(rows || []);
         return result;
     };
-    const exportFields = [
-        'category', 'no', 'parts', 'material_description', 'unit', 'supplier', 'remark',
-        ...Array.from({ length: colorColumnCount }, (_, index) => [`color_${index}`, `process_${index}`]).flat()
-    ];
-    const exportHeaders = [
-        'Category', 'No.', 'Parts', 'Material Description', 'Unit', 'Supplier', 'Remark',
-        ...Array.from({ length: colorColumnCount }, (_, index) => [`Color ${index + 1}`, `Process ${index + 1}`]).flat()
+    const exportHeaders = () => [
+        ...columns.map(column => column.field === 'category_label' ? 'Category' : column.title),
+        'Parent Row'
     ];
     async function exportTableFile(options) {
         try {
+            const headers = exportHeaders();
             const rows = flatMaterialRows(options.data);
-            const data = rows.map(row => exportFields.map(field => {
-                if (field === 'category') return row.category;
-                return row[field] ?? '';
-            }));
+            const rowNumbers = new Map(rows.map((row, index) => [row.item_id, index + 1]));
+            const data = rows.map(row => [
+                ...columns.map(column => column.field === 'category_label'
+                    ? row.category
+                    : row[column.field] ?? ''),
+                row.parent_id ? rowNumbers.get(row.parent_id) || '' : ''
+            ]);
             const filename = options.filename || activeStyleNo || 'BOM';
             if (options.type === 'csv') {
                 const csvCell = value => {
                     const text = String(value ?? '');
                     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
                 };
-                const csv = [exportHeaders, ...data].map(row => row.map(csvCell).join(',')).join('\r\n');
+                const csv = [headers, ...data].map(row => row.map(csvCell).join(',')).join('\r\n');
                 await saveFile(filename, 'csv', `\ufeff${csv}`);
                 return;
             }
             const workbook = new ExcelJS.Workbook();
             const sheet = workbook.addWorksheet('BOM');
-            sheet.addRow(exportHeaders);
+            sheet.addRow(headers);
             data.forEach(row => sheet.addRow(row));
             sheet.views = [{ state: 'frozen', ySplit: 1 }];
             sheet.columns.forEach(column => { column.width = 20; });
@@ -373,6 +476,7 @@
         return records;
     };
     async function readImportRows(file) {
+        const headers = exportHeaders();
         let records;
         if (/\.csv$/i.test(file.name)) {
             records = parseCSV(await file.text());
@@ -383,16 +487,16 @@
             if (!sheet) throw new Error('工作簿中没有 BOM 数据');
             records = [];
             sheet.eachRow(row => records.push(Array.from(
-                { length: exportHeaders.length },
+                { length: headers.length },
                 (_, index) => row.getCell(index + 1).text
             )));
         }
         records = records.map(record => Array.from(
-            { length: exportHeaders.length },
+            { length: headers.length },
             (_, index) => String(record[index] ?? '')
         ));
-        if (!records.length || records[0].length !== exportHeaders.length ||
-            records[0].some((header, index) => header.trim() !== exportHeaders[index])) {
+        if (!records.length || records[0].length !== headers.length ||
+            records[0].some((header, index) => header.trim() !== headers[index])) {
             throw new Error('文件列结构不匹配，请使用表格工具栏导出的模板');
         }
         return records.slice(1).filter(record => record.some(value => value !== '')).map(record => {
@@ -404,13 +508,16 @@
                 unit: record[4] || '',
                 supplier: record[5] || '',
                 remark: record[6] || '',
+                parent_row: record[headers.length - 1].trim() ? Number(record[headers.length - 1]) : null,
                 color: [],
                 process: []
             };
-            for (let index = 0; index < colorColumnCount; index++) {
-                item.color[index] = record[7 + index * 2] || '';
-                item.process[index] = record[8 + index * 2] || '';
-            }
+            item.custom_fields = {};
+            columns.forEach((column, index) => {
+                if (Number.isInteger(column.colorIndex)) item.color[column.colorIndex] = record[index] || '';
+                else if (Number.isInteger(column.processIndex)) item.process[column.processIndex] = record[index] || '';
+                else if (column.customId) item.custom_fields[column.customId] = record[index] || '';
+            });
             return item;
         });
     }
@@ -421,6 +528,10 @@
         const invalidNumber = rows.findIndex(row => row.no !== null &&
             (!Number.isInteger(row.no) || row.no < 1 || row.no > 999999));
         if (invalidNumber >= 0) throw new Error(`第 ${invalidNumber + 2} 行的 No. 必须是 1–999999 的整数`);
+        const invalidParent = rows.findIndex((row, index) => row.parent_row !== null &&
+            (!Number.isInteger(row.parent_row) || row.parent_row < 1 || row.parent_row > index ||
+                rows[row.parent_row - 1].category !== row.category));
+        if (invalidParent >= 0) throw new Error(`第 ${invalidParent + 2} 行的父级行号无效或分类不一致`);
     }
     async function importTableFile({ file }) {
         try {
@@ -485,44 +596,58 @@
                 },
                 treeConfig: { childrenField: 'children', expandAll: true, trigger: 'row', showLine: true },
                 rowConfig: { keyField: 'row_key', isCurrent: true, isHover: true },
-                checkboxConfig: { checkMethod: ({ row }) => !!row.item_id },
                 columnConfig: { resizable: true },
                 customConfig: { enabled: true, storage: true, allowFixed: true },
                 printConfig: { mode: 'current', isFooter: true },
-                onCellClick: ({ row }) => {
-                    selectedRow = row.item_id ? row : null;
-                    deleteRowButton.disabled = !selectedRow &&
-                        !gridTable?.getCheckboxRecords().some(record => record.item_id);
-                },
-                onCheckboxChange: () => {
-                    deleteRowButton.disabled = !gridTable?.getCheckboxRecords().some(row => row.item_id);
-                },
-                onCheckboxAll: () => {
-                    deleteRowButton.disabled = !gridTable?.getCheckboxRecords().some(row => row.item_id);
-                },
                 onEditClosed: persistEditedCell
             }, {
                 default: () => [
-                    h(VxeColumnComponent, {
-                        type: 'checkbox',
-                        width: 48,
-                        fixed: 'left'
-                    }),
-                    ...columns.map(column => h(VxeColumnComponent, {
-                        key: column.field,
-                        field: column.field,
-                        title: column.title,
-                        width: column.width,
-                        fixed: ['category_label', 'no'].includes(column.field) ? 'left' : undefined,
-                        treeNode: column.field === 'category_label',
-                        sortable: true,
-                        filters: column.field === 'category_label' ? categoryFilters : undefined,
-                        filterMultiple: false,
-                        filterMethod: column.field === 'category_label'
-                            ? ({ option, row }) => row.category === option.value
-                            : undefined,
-                        editRender: column.editable ? { name: 'input' } : undefined
-                    }))
+                    ...columns.map(column => {
+                        const slots = column.editableTitle ? {
+                            header: () => columnTitleEdit.field === column.field
+                                ? h('input', {
+                                    class: 'column-title-editor',
+                                    value: columnTitleEdit.value,
+                                    maxlength: 80,
+                                    autofocus: true,
+                                    onClick: event => event.stopPropagation(),
+                                    onInput: event => { columnTitleEdit.value = event.target.value; },
+                                    onKeydown: event => {
+                                        event.stopPropagation();
+                                        if (event.key === 'Enter') {
+                                            event.preventDefault();
+                                            finishColumnTitleEdit(column);
+                                        } else if (event.key === 'Escape') {
+                                            columnTitleEdit.field = '';
+                                        }
+                                    },
+                                    onBlur: () => finishColumnTitleEdit(column)
+                                })
+                                : h('span', {
+                                    class: 'editable-column-title',
+                                    title: '双击修改列名',
+                                    onDblclick: event => {
+                                        event.stopPropagation();
+                                        beginColumnTitleEdit(column);
+                                    }
+                                }, column.title)
+                        } : undefined;
+                        return h(VxeColumnComponent, {
+                            key: column.field,
+                            field: column.field,
+                            title: column.title,
+                            width: column.width,
+                            fixed: ['category_label', 'no'].includes(column.field) ? 'left' : undefined,
+                            treeNode: column.field === 'category_label',
+                            sortable: true,
+                            filters: column.field === 'category_label' ? categoryFilters : undefined,
+                            filterMultiple: false,
+                            filterMethod: column.field === 'category_label'
+                                ? ({ option, row }) => row.category === option.value
+                                : undefined,
+                            editRender: column.editable ? { name: 'input' } : undefined
+                        }, slots);
+                    })
                 ]
             });
             const toolbar = h(VxeToolbarComponent, {
@@ -549,20 +674,41 @@
 
     function displayRows(items) {
         const labels = Object.fromEntries(categoryNames);
-        return categoryNames.map(([category]) => {
-            const children = items.filter(item => item.category === category).map(item => {
-                const row = {
-                    ...item,
-                    row_key: `item-${item.item_id}`,
-                    category_label: labels[item.category] || item.category,
-                    no: item.no ?? ''
-                };
-                for (let index = 0; index < colorColumnCount; index++) {
-                    row[`color_${index}`] = item.color?.[index] || '';
-                    row[`process_${index}`] = item.process?.[index] || '';
-                }
-                return row;
+        const rowsByID = new Map();
+        (items || []).forEach(item => {
+            const row = {
+                ...item,
+                row_key: `item-${item.item_id}`,
+                category_label: labels[item.category] || item.category,
+                no: item.no ?? '',
+                children: []
+            };
+            for (let index = 0; index < colorColumnCount; index++) {
+                row[`color_${index}`] = item.color?.[index] || '';
+                row[`process_${index}`] = item.process?.[index] || '';
+            }
+            customColumns.forEach(column => {
+                row[`custom_${column.id}`] = item.custom_fields?.[column.id] || '';
             });
+            rowsByID.set(row.item_id, row);
+        });
+        return categoryNames.map(([category]) => {
+            const categoryItems = [...rowsByID.values()]
+                .filter(item => item.category === category)
+                .sort((left, right) => left.sort_order - right.sort_order || left.item_id - right.item_id);
+            const children = [];
+            categoryItems.forEach(row => {
+                const parent = rowsByID.get(row.parent_id);
+                if (parent?.category === category) parent.children.push(row);
+                else children.push(row);
+            });
+            const sortChildren = rows => rows.forEach(row => {
+                row.children.sort((left, right) =>
+                    left.sort_order - right.sort_order || left.item_id - right.item_id
+                );
+                sortChildren(row.children);
+            });
+            sortChildren(children);
             return {
                 row_key: `category-${category}`,
                 category,
@@ -572,6 +718,256 @@
             };
         }).filter(row => row.children.length);
     }
+
+    const rowContextMenu = document.getElementById('row-context-menu');
+    const columnContextMenu = document.getElementById('column-context-menu');
+    const lastCategory = categoryNames[categoryNames.length - 1][0];
+    let contextRow = null;
+    let clipboardRows = null;
+    let contextColumn = null;
+    let clipboardColumn = null;
+    const hideRowContextMenu = () => {
+        rowContextMenu.hidden = true;
+        contextRow = null;
+    };
+    const showRowContextMenu = (row, event) => {
+        contextRow = row || null;
+        const isItem = !!row?.item_id;
+        rowContextMenu.querySelector('[data-action="add-node"]').disabled = !isItem;
+        rowContextMenu.querySelector('[data-action="copy"]').disabled = !isItem;
+        rowContextMenu.querySelector('[data-action="delete"]').disabled = !isItem;
+        rowContextMenu.querySelector('[data-action="paste"]').disabled = !clipboardRows;
+        rowContextMenu.hidden = false;
+        const menuWidth = rowContextMenu.offsetWidth;
+        const menuHeight = rowContextMenu.offsetHeight;
+        rowContextMenu.style.left = `${Math.max(4, Math.min(event.clientX, innerWidth - menuWidth - 4))}px`;
+        rowContextMenu.style.top = `${Math.max(4, Math.min(event.clientY, innerHeight - menuHeight - 4))}px`;
+    };
+    document.getElementById('bom-table').addEventListener('contextmenu', event => {
+        const bodyArea = event.target.closest('.vxe-table--body-wrapper, .vxe-table--empty-place-wrapper');
+        if (!bodyArea) return;
+        event.preventDefault();
+        event.stopPropagation();
+        hideColumnContextMenu();
+        const tableRow = event.target.closest('tr[rowid]');
+        const rowNode = tableRow && gridTable?.getRowNode(tableRow);
+        showRowContextMenu(rowNode?.item || null, event);
+    });
+    const hideColumnContextMenu = () => {
+        columnContextMenu.hidden = true;
+        contextColumn = null;
+    };
+    const showColumnContextMenu = (column, event) => {
+        contextColumn = column || null;
+        columnContextMenu.querySelector('[data-action="copy"]').disabled = !column;
+        columnContextMenu.querySelector('[data-action="delete"]').disabled = !column;
+        columnContextMenu.querySelector('[data-action="paste"]').disabled =
+            !clipboardColumn || clipboardColumn.styleNo !== activeStyleNo;
+        columnContextMenu.hidden = false;
+        const menuWidth = columnContextMenu.offsetWidth;
+        const menuHeight = columnContextMenu.offsetHeight;
+        columnContextMenu.style.left = `${Math.max(4, Math.min(event.clientX, innerWidth - menuWidth - 4))}px`;
+        columnContextMenu.style.top = `${Math.max(4, Math.min(event.clientY, innerHeight - menuHeight - 4))}px`;
+    };
+    document.getElementById('bom-table').addEventListener('contextmenu', event => {
+        const headerArea = event.target.closest('.vxe-table--header-wrapper');
+        if (!headerArea) return;
+        const headerCell = event.target.closest('th');
+        const headerNode = headerCell && gridTable?.getColumnNode(headerCell);
+        const field = headerNode?.item?.field;
+        const column = columns.find(item => item.field === field);
+        if (column && fixedColumnFields.has(column.field)) {
+            hideColumnContextMenu();
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        hideRowContextMenu();
+        showColumnContextMenu(column || null, event);
+    });
+    document.addEventListener('click', event => {
+        if (!rowContextMenu.contains(event.target)) hideRowContextMenu();
+        if (!columnContextMenu.contains(event.target)) hideColumnContextMenu();
+    });
+    document.addEventListener('keydown', event => {
+        if (event.key === 'Escape') {
+            hideRowContextMenu();
+            hideColumnContextMenu();
+        }
+    });
+    window.addEventListener('scroll', () => {
+        hideRowContextMenu();
+        hideColumnContextMenu();
+    }, true);
+
+    async function saveCustomColumn(column, paste = false) {
+        const position = column ? columns.indexOf(column) + 1 : columns.length;
+        const values = paste ? clipboardColumn.values : [];
+        const newColumn = {
+            id: crypto.randomUUID(),
+            title: paste ? clipboardColumn.title : `自定义列 ${customColumns.length + 1}`,
+            position
+        };
+        await queueWrite(() => postJSON('/api/bom/custom-column', {
+            action: 'add',
+            column: newColumn,
+            values
+        }));
+        await loadCurrentStyle();
+        showStatus(values.length ? '已复制并粘贴整列' : '已在目标列后添加新列');
+    }
+    columnContextMenu.addEventListener('click', event => {
+        const action = event.target.closest('[data-action]')?.dataset.action;
+        if (!action) return;
+        const selectedColumn = contextColumn;
+        hideColumnContextMenu();
+        if (action === 'copy' && selectedColumn) {
+            clipboardColumn = {
+                title: selectedColumn.title,
+                styleNo: activeStyleNo,
+                values: flatMaterialRows(gridState.rows).map(row => ({
+                    category: row.category,
+                    item_id: row.item_id,
+                    value: String(row[selectedColumn.field] ?? '')
+                }))
+            };
+            showStatus(`已复制整列「${selectedColumn.title}」`);
+            return;
+        }
+        if (action === 'add') {
+            saveCustomColumn(selectedColumn).catch(error =>
+                showStatus(`添加列失败：${error.message}`, true)
+            );
+            return;
+        }
+        if (action === 'paste') {
+            if (!clipboardColumn || clipboardColumn.styleNo !== activeStyleNo) return;
+            saveCustomColumn(selectedColumn, true).catch(error =>
+                showStatus(`粘贴列失败：${error.message}`, true)
+            );
+            return;
+        }
+        if (action === 'delete' && selectedColumn) {
+            if (!confirm(`确定删除列「${selectedColumn.title}」吗？`)) return;
+            const columnID = selectedColumn.customId || selectedColumn.field;
+            queueWrite(() => postJSON('/api/bom/custom-column', {
+                action: 'delete',
+                column_id: columnID
+            })).then(loadCurrentStyle).then(() => showStatus(`已删除列「${selectedColumn.title}」`))
+                .catch(error => showStatus(`删除列失败：${error.message}`, true));
+        }
+    });
+
+    function snapshotRowTree(root) {
+        const snapshot = [];
+        const visit = (row, parentIndex = null) => {
+            const index = snapshot.length;
+            snapshot.push({
+                parent_index: parentIndex,
+                parts: row.parts || '',
+                material_description: row.material_description || '',
+                unit: row.unit || '',
+                remark: row.remark || '',
+                supplier: row.supplier || '',
+                color: Array.from({ length: colorColumnCount }, (_, i) => row[`color_${i}`] || ''),
+                process: Array.from({ length: colorColumnCount }, (_, i) => row[`process_${i}`] || ''),
+                custom_fields: Object.fromEntries(customColumns.map(column =>
+                    [column.id, row[`custom_${column.id}`] || '']
+                ))
+            });
+            (row.children || []).forEach(child => visit(child, index));
+        };
+        visit(root);
+        return snapshot;
+    }
+    const firstRootRow = category => gridState.rows.find(item => item.category === category)?.children?.[0] || null;
+    function nextSiblingRow(row) {
+        const siblings = row.parent_id
+            ? flatMaterialRows(gridState.rows).find(item => item.item_id === row.parent_id)?.children
+            : gridState.rows.find(item => item.category === row.category)?.children;
+        if (!siblings) return null;
+        const index = siblings.findIndex(item => item.item_id === row.item_id);
+        return siblings[index + 1] || null;
+    }
+    async function addMaterialRow(row) {
+        const category = row?.category || lastCategory;
+        let parentID = null;
+        let beforeItemID = null;
+        if (row?.item_id) {
+            parentID = row.parent_id ?? null;
+            beforeItemID = nextSiblingRow(row)?.item_id ?? null;
+        } else if (row?.isCategory) {
+            beforeItemID = firstRootRow(category)?.item_id ?? null;
+        }
+        await queueWrite(() => postJSON('/api/bom/row-insert', {
+            category, parent_id: parentID, before_item_id: beforeItemID, items: [{}]
+        }));
+        await loadCurrentStyle();
+        showStatus('已在选中行后新增物料行');
+    }
+    async function addChildRow(row) {
+        if (!row?.item_id) return;
+        const beforeItemID = row.children?.[0]?.item_id ?? null;
+        await queueWrite(() => postJSON('/api/bom/row-insert', {
+            category: row.category,
+            parent_id: row.item_id,
+            before_item_id: beforeItemID,
+            items: [{}]
+        }));
+        await loadCurrentStyle();
+        showStatus('已在节点行下新增子行');
+    }
+    async function pasteRows(row) {
+        if (!clipboardRows?.length) return;
+        const category = row?.category || lastCategory;
+        let parentID = null;
+        let beforeItemID = null;
+        if (row?.item_id) {
+            parentID = row.parent_id ?? null;
+            beforeItemID = row.item_id;
+        } else if (row?.isCategory) {
+            beforeItemID = firstRootRow(category)?.item_id ?? null;
+        }
+        await queueWrite(() => postJSON('/api/bom/row-insert', {
+            category, parent_id: parentID, before_item_id: beforeItemID, items: clipboardRows
+        }));
+        await loadCurrentStyle();
+        showStatus(`已粘贴 ${clipboardRows.length} 行（含子行）`);
+    }
+    async function deleteMaterialRow(row) {
+        if (!row?.item_id) return;
+        const descendantCount = flatMaterialRows(row.children || []).length;
+        const description = descendantCount
+            ? `该节点包含 ${descendantCount} 条子行，确定删除本行及所有子行吗？`
+            : '确定删除选中的物料行吗？';
+        if (!confirm(description)) return;
+        await queueWrite(() => postJSON('/api/bom/row-delete', {
+            category: row.category, item_id: row.item_id
+        }));
+        await loadCurrentStyle();
+        showStatus('已删除选中物料行');
+    }
+    rowContextMenu.addEventListener('click', event => {
+        const action = event.target.closest('[data-action]')?.dataset.action;
+        if (!action) return;
+        if (action === 'copy' && contextRow?.item_id) {
+            clipboardRows = snapshotRowTree(contextRow);
+            rowContextMenu.querySelector('[data-action="paste"]').disabled = false;
+            showStatus(`已复制 ${clipboardRows.length} 行（含子行）`);
+            hideRowContextMenu();
+            return;
+        }
+        const operations = {
+            'add-row': addMaterialRow,
+            'add-node': addChildRow,
+            paste: pasteRows,
+            delete: deleteMaterialRow
+        };
+        const operation = operations[action];
+        const selectedRow = contextRow;
+        hideRowContextMenu();
+        if (operation) operation(selectedRow).catch(error => showStatus(`行操作失败：${error.message}`, true));
+    });
 
     async function loadStyles(prefix = document.getElementById('search-prefix').value) {
         listStatus.textContent = '正在读取 PostgreSQL 数据…';
@@ -596,10 +992,7 @@
     async function loadCurrentStyle() {
         if (!activeStyleNo) {
             gridState.rows = [];
-            selectedRow = null;
             savedRowValues.clear();
-            gridTable?.clearCheckboxRow();
-            deleteRowButton.disabled = true;
             return;
         }
         showStatus('正在加载鞋款…');
@@ -621,14 +1014,12 @@
             input.disabled = false;
             savedFooter[field] = input.value;
         });
+        syncCustomColumns(matrix.custom_columns || [], matrix.hidden_columns || []);
         gridState.rows = displayRows(matrix.data || []);
         savedRowValues = new Map(flatMaterialRows(gridState.rows).map(row => [
             row.item_id,
-            Object.fromEntries(editableFields.map(field => [field, row[field] ?? '']))
+            Object.fromEntries(editableFields().map(field => [field, row[field] ?? '']))
         ]));
-        gridTable?.clearCheckboxRow();
-        selectedRow = null;
-        deleteRowButton.disabled = true;
         document.title = `${header.style_no} - ${header.style_name || 'BOM'}`;
         showStatus(`${flatMaterialRows(gridState.rows).length} 行物料已加载`);
     }
@@ -636,9 +1027,12 @@
     async function persistEditedCell({ row, column }) {
         if (!row || !row.item_id) return;
         const snapshot = savedRowValues.get(row.item_id) || {};
-        const changedFields = gridState.editMode === 'row'
-            ? editableFields.filter(field => !Object.is(row[field] ?? '', snapshot[field] ?? ''))
-            : [column?.field].filter(field => editableFields.includes(field));
+        const currentEditableFields = editableFields();
+        const candidateFields = gridState.editMode === 'row' ? currentEditableFields : [column?.field];
+        const changedFields = candidateFields.filter(field =>
+            currentEditableFields.includes(field) &&
+            !Object.is(row[field] ?? '', snapshot[field] ?? '')
+        );
         if (!changedFields.length) return;
         try {
             await gridTable.validateField(row, changedFields);
@@ -665,6 +1059,13 @@
                             item_id: row.item_id,
                             field_type: 'process',
                             index: columnConfig.processIndex,
+                            value
+                        });
+                    } else if (columnConfig?.customId) {
+                        await postJSON('/api/bom/update-custom-cell', {
+                            category: row.category,
+                            item_id: row.item_id,
+                            column_id: columnConfig.customId,
                             value
                         });
                     } else {
@@ -744,38 +1145,6 @@
             await loadCurrentStyle();
         } catch (error) {
             showStatus(`新增鞋款失败：${error.message}`, true);
-        }
-    });
-
-    document.getElementById('add-row').addEventListener('click', async () => {
-        if (!activeStyleNo) return showStatus('请先选择鞋款', true);
-        const category = document.getElementById('new-row-category').value;
-        try {
-            await queueWrite(() => postJSON('/api/bom/add-row', { category }));
-            await loadCurrentStyle();
-            showStatus('已新增物料行');
-        } catch (error) {
-            showStatus(`新增物料行失败：${error.message}`, true);
-        }
-    });
-
-    deleteRowButton.addEventListener('click', async () => {
-        const checkedRows = gridTable?.getCheckboxRecords().filter(row => row.item_id) || [];
-        const rowsToDelete = checkedRows.length ? checkedRows : (selectedRow ? [selectedRow] : []);
-        if (!rowsToDelete.length) return;
-        if (!confirm(`确定删除选中的 ${rowsToDelete.length} 行物料吗？`)) return;
-        try {
-            for (const row of rowsToDelete) {
-                await queueWrite(() => postJSON('/api/bom/delete-row', {
-                    category: row.category,
-                    item_id: row.item_id
-                }));
-            }
-            await loadCurrentStyle();
-            showStatus('已删除物料行');
-        } catch (error) {
-            await loadCurrentStyle();
-            showStatus(`删除物料行失败：${error.message}`, true);
         }
     });
 
