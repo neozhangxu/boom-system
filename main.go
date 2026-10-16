@@ -1344,7 +1344,23 @@ func main() {
 				return fmt.Errorf("关闭 Color Codes 查询失败: %w", err)
 			}
 			if len(records) == 0 {
-				return sql.ErrNoRows
+				values, err := setStringArrayValue(nil, request.Index, request.Value)
+				if err != nil {
+					return err
+				}
+				encoded, err := encodeStringArray(values)
+				if err != nil {
+					return err
+				}
+				if _, err := tx.ExecContext(c.Request.Context(), `
+					INSERT INTO `+tableName+` (
+						module_name, no, parent_id, sort_order, parts, material_description,
+						unit, remark, supplier, color_codes, color, process, custom_fields
+					) VALUES ('upper', NULL, NULL, 0, '', '', '', '', '', $1::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb)
+				`, string(encoded)); err != nil {
+					return fmt.Errorf("初始化 UPPER 组件并保存 Color Codes 失败: %w", err)
+				}
+				return nil
 			}
 			for _, record := range records {
 				encoded, err := encodeStringArray(record.values)
