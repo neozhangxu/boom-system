@@ -23,6 +23,8 @@
         .style-option:hover { background: #f1f5f9; }
         .style-option.active { background: #dbeafe; color: #1d4ed8; font-weight: 700; }
         .sidebar-note { padding: 8px 12px; color: #64748b; font-size: 12px; }
+        .style-actions { display: flex; gap: 8px; margin: 8px; }
+        .style-actions .button { flex: 1; padding: 7px 8px; }
         .content { min-width: 0; }
         .panel { padding: 16px; margin-bottom: 14px; }
         .header-grid { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; }
@@ -50,8 +52,6 @@
         #status.error { color: #b91c1c; }
         #bom-table { width: 100%; height: 620px; }
         #bom-table .table-shell { height: 100%; }
-        .footer-grid { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 10px; }
-        .footer-grid h2 { grid-column: 1 / -1; margin: 0; font-size: 14px; }
         .modal-backdrop { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: #0f172a80; }
         .modal { width: min(700px, 100%); max-height: 90vh; overflow: auto; background: white; border-radius: 8px; padding: 20px; }
         .modal h2 { margin: 0 0 16px; }
@@ -60,11 +60,11 @@
         @media (max-width: 1000px) {
             .layout { grid-template-columns: 1fr; }
             .sidebar { position: static; max-height: 280px; }
-            .header-grid, .footer-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
+            .header-grid { grid-template-columns: repeat(2, minmax(120px, 1fr)); }
         }
         @media (max-width: 560px) {
             body { padding: 8px; }
-            .header-grid, .footer-grid { grid-template-columns: 1fr; }
+            .header-grid { grid-template-columns: 1fr; }
             #status { width: 100%; margin-left: 0; }
         }
     </style>
@@ -79,7 +79,10 @@
         </form>
         <nav id="style-list" aria-label="鞋款列表"></nav>
         <div id="list-status" class="sidebar-note" aria-live="polite"></div>
-        <button class="button" id="create-style" type="button" style="margin: 8px">新增鞋款</button>
+        <div class="style-actions">
+            <button class="button" id="create-style" type="button">新增鞋款</button>
+            <button class="button danger" id="delete-style" type="button">删除鞋款</button>
+        </div>
     </aside>
     <main class="content">
         <section class="panel">
@@ -96,14 +99,9 @@
                         <option value="row">整行编辑</option>
                     </select>
                 </label>
-                <button class="button danger" id="delete-style" type="button">删除鞋款</button>
                 <span id="status" aria-live="polite">正在加载前端组件…</span>
             </div>
             <div id="bom-table"></div>
-        </section>
-        <section class="panel footer-grid">
-            <h2>签核信息</h2>
-            <div id="footer-fields" class="footer-grid" style="display: contents"></div>
         </section>
     </main>
 </div>
@@ -151,33 +149,36 @@
     const VxeToolbarComponent = VxeTable.VxeToolbar;
     const categoryNames = [
         ['upper', '鞋面'],
-        ['stitching', '车缝'],
-        ['accessories', '配件'],
-        ['insole', '鞋垫'],
         ['lining', '内里'],
-        ['outsole', '大底'],
-        ['packing', '包装'],
         ['reinforcement', '补强'],
-        ['sock_liner', '袜套']
+        ['sock_liner', '袜套'],
+        ['insole', '鞋垫'],
+        ['outsole', '大底'],
+        ['accessories', '配件'],
+        ['packing', '包装'],
+        ['stitching', '车缝'],
+        ['rem', 'REM']
     ];
     const headerDefinitions = [
         ['style_no', 'Style No.'],
+        ['company_title', 'Company Title'],
+        ['order_title', 'Order Title'],
         ['style_name', 'Style Name'],
         ['sample_order_no', 'Sample Order No.'],
         ['sample_type', 'Sample Type'],
+        ['customer', 'Customer'],
         ['season', 'Season'],
+        ['brand', 'Brand'],
         ['gender', 'Gender'],
         ['last_no', 'Last No.'],
+        ['shoe_type', 'Shoe Type'],
         ['bottom_no', 'Bottom No.'],
         ['shoe_filler_no', 'Shoe Filler No.'],
-        ['shoe_type', 'Shoe Type'],
-        ['create_date', 'Create Date']
-    ];
-    const footerDefinitions = [
-        ['approved_by', '核准'],
-        ['checked_by', '审核'],
-        ['prepared_by', '制表'],
-        ['approval_date', '签核日期']
+        ['pattern_master', 'Pattern Master'],
+        ['tooling_master', 'Tooling Master'],
+        ['create_date', 'Create Date'],
+        ['print_date', 'Print Date'],
+        ['request_finish_date', 'Request Finish Date']
     ];
     const colorColumnCount = 8;
     const gridState = reactive({ rows: [], editMode: 'cell' });
@@ -204,7 +205,7 @@
     let connectedToolbar = null;
     let writeQueue = Promise.resolve();
     let savedHeader = {};
-    let savedFooter = {};
+    let savedColorCodeValues = [];
 
     const status = document.getElementById('status');
     const listStatus = document.getElementById('list-status');
@@ -256,7 +257,7 @@
         input.name = field;
         input.dataset.field = field;
         input.value = value ?? '';
-        if (field === 'create_date' || field === 'approval_date') input.type = 'date';
+        if (['create_date', 'print_date', 'request_finish_date'].includes(field)) input.type = 'date';
         if (field === 'style_no') input.maxLength = 63;
         wrapper.appendChild(input);
         container.appendChild(wrapper);
@@ -264,15 +265,12 @@
     };
 
     headerDefinitions.forEach(field => makeField(field));
-    footerDefinitions.forEach(field => makeField(field, '', document.getElementById('footer-fields')));
     const createFieldNames = headerDefinitions.filter(([field]) => field !== 'style_no');
     const createFields = document.getElementById('create-fields');
     const createStyleNoInput = makeField(['style_no', 'Style No.'], '', createFields);
     createFieldNames.forEach(field => makeField(field, '', createFields));
-    footerDefinitions.forEach(field => makeField(field, '', createFields));
 
     const fieldInput = field => document.querySelector(`#header-fields [data-field="${field}"]`);
-    const footerInput = field => document.querySelector(`#footer-fields [data-field="${field}"]`);
 
     const fixedColumnFields = new Set([
         'category_label', 'no', 'parts', 'material_description', 'unit', 'supplier', 'remark'
@@ -369,6 +367,30 @@
         showStatus('列名已保存到当前浏览器');
     };
     const editableFields = () => columns.filter(column => column.editable).map(column => column.field);
+    const colorCodesText = values => {
+        if (!Array.isArray(values)) return '';
+        const codes = [...values];
+        while (codes.length && !codes[codes.length - 1]) codes.pop();
+        return codes.join(', ');
+    };
+    const upperColorCodes = items => {
+        const upperRows = (items || []).filter(item =>
+            item.category === 'upper' && Array.isArray(item.color_codes)
+        );
+        const source = upperRows.find(item => item.color_codes.some(code => String(code || '').trim())) ||
+            upperRows[0];
+        return [...(source?.color_codes || [])];
+    };
+    const colorCodesValue = value => {
+        const text = String(value ?? '').trim();
+        if (!text) return [];
+        const values = text.split(',').map(code => code.trim());
+        while (values.length && values[values.length - 1] === '') values.pop();
+        if (values.length > colorColumnCount) {
+            throw new Error(`Color Codes 最多支持 ${colorColumnCount} 个值`);
+        }
+        return values;
+    };
     let savedRowValues = new Map();
     const connectToolbar = () => {
         if (gridTable && gridToolbar &&
@@ -399,19 +421,31 @@
         visit(rows || []);
         return result;
     };
-    const exportHeaders = () => [
-        ...columns.map(column => column.field === 'category_label' ? 'Category' : column.title),
-        'Parent Row'
+    const exportColumns = () => [
+        ...columns.slice(0, 7),
+        { field: 'color_codes', title: 'Color Codes' },
+        ...columns.slice(7)
     ];
+    const exportHeaders = () => exportColumns().map(column =>
+        column.field === 'category_label' ? 'Category' : column.title
+    ).concat('Parent Row');
     async function exportTableFile(options) {
         try {
             const headers = exportHeaders();
             const rows = flatMaterialRows(options.data);
             const rowNumbers = new Map(rows.map((row, index) => [row.item_id, index + 1]));
+            let previousCategory = '';
             const data = rows.map(row => [
-                ...columns.map(column => column.field === 'category_label'
-                    ? row.category
-                    : row[column.field] ?? ''),
+                ...exportColumns().map(column => {
+                    if (column.field === 'category_label') {
+                        if (row.category === previousCategory) return '';
+                        previousCategory = row.category;
+                        return row.category;
+                    }
+                    return column.field === 'color_codes'
+                        ? colorCodesText(row.source_color_codes)
+                        : row[column.field] ?? '';
+                }),
                 row.parent_id ? rowNumbers.get(row.parent_id) || '' : ''
             ]);
             const filename = options.filename || activeStyleNo || 'BOM';
@@ -499,23 +533,28 @@
             records[0].some((header, index) => header.trim() !== headers[index])) {
             throw new Error('文件列结构不匹配，请使用表格工具栏导出的模板');
         }
+        let previousCategory = '';
         return records.slice(1).filter(record => record.some(value => value !== '')).map(record => {
+            const category = record[0].trim() || previousCategory;
+            if (category) previousCategory = category;
+            const parentRowValue = record[headers.length - 1].trim();
             const item = {
-                category: record[0].trim(),
+                category,
+                parent_row: parentRowValue ? Number(parentRowValue) : null,
                 no: record[1].trim() ? Number(record[1]) : null,
                 parts: record[2] || '',
                 material_description: record[3] || '',
                 unit: record[4] || '',
                 supplier: record[5] || '',
                 remark: record[6] || '',
-                parent_row: record[headers.length - 1].trim() ? Number(record[headers.length - 1]) : null,
                 color: [],
                 process: []
             };
             item.custom_fields = {};
-            columns.forEach((column, index) => {
+            exportColumns().forEach((column, index) => {
                 if (Number.isInteger(column.colorIndex)) item.color[column.colorIndex] = record[index] || '';
                 else if (Number.isInteger(column.processIndex)) item.process[column.processIndex] = record[index] || '';
+                else if (column.field === 'color_codes') item.color_codes = colorCodesValue(record[index]);
                 else if (column.customId) item.custom_fields[column.customId] = record[index] || '';
             });
             return item;
@@ -575,7 +614,10 @@
                     mode: gridState.editMode,
                     autoClear: true,
                     showStatus: true,
-                    beforeEditMethod: ({ row }) => !!row.item_id
+                    beforeEditMethod: ({ row, column }) => !!row.item_id ||
+                        (!!row.isColorCodesSummary && Number.isInteger(
+                            columns.find(item => item.field === column.field)?.colorIndex
+                        ))
                 },
                 editRules: {
                     no: [{
@@ -679,7 +721,9 @@
             const row = {
                 ...item,
                 row_key: `item-${item.item_id}`,
-                category_label: labels[item.category] || item.category,
+                category_label: '',
+                source_color_codes: Array.isArray(item.color_codes) ? [...item.color_codes] : [],
+                color_codes: '',
                 no: item.no ?? '',
                 children: []
             };
@@ -692,15 +736,16 @@
             });
             rowsByID.set(row.item_id, row);
         });
-        return categoryNames.map(([category]) => {
+        const colorCodes = upperColorCodes(items);
+        const categoryRows = categoryNames.map(([category]) => {
             const categoryItems = [...rowsByID.values()]
                 .filter(item => item.category === category)
                 .sort((left, right) => left.sort_order - right.sort_order || left.item_id - right.item_id);
-            const children = [];
+            const roots = [];
             categoryItems.forEach(row => {
                 const parent = rowsByID.get(row.parent_id);
                 if (parent?.category === category) parent.children.push(row);
-                else children.push(row);
+                else roots.push(row);
             });
             const sortChildren = rows => rows.forEach(row => {
                 row.children.sort((left, right) =>
@@ -708,21 +753,34 @@
                 );
                 sortChildren(row.children);
             });
-            sortChildren(children);
+            sortChildren(roots);
             return {
                 row_key: `category-${category}`,
                 category,
                 category_label: labels[category],
                 isCategory: true,
-                children
+                children: roots
             };
         }).filter(row => row.children.length);
+        return [{
+            row_key: 'color-codes-summary',
+            category: 'upper',
+            category_label: 'Color Codes',
+            isCategory: true,
+            isColorCodesSummary: true,
+            ...Object.fromEntries(Array.from(
+                { length: colorColumnCount },
+                (_, index) => [`color_${index}`, colorCodes[index] || '']
+            )),
+            children: []
+        }, ...categoryRows];
     }
 
     const rowContextMenu = document.getElementById('row-context-menu');
     const columnContextMenu = document.getElementById('column-context-menu');
     const lastCategory = categoryNames[categoryNames.length - 1][0];
     let contextRow = null;
+    let contextCategory = 'upper';
     let clipboardRows = null;
     let contextColumn = null;
     let clipboardColumn = null;
@@ -733,7 +791,9 @@
     const showRowContextMenu = (row, event) => {
         contextRow = row || null;
         const isItem = !!row?.item_id;
-        rowContextMenu.querySelector('[data-action="add-node"]').disabled = !isItem;
+        if (row?.category) contextCategory = row.category;
+        rowContextMenu.querySelector('[data-action="add-node"]').disabled =
+            row?.isColorCodesSummary === true;
         rowContextMenu.querySelector('[data-action="copy"]').disabled = !isItem;
         rowContextMenu.querySelector('[data-action="delete"]').disabled = !isItem;
         rowContextMenu.querySelector('[data-action="paste"]').disabled = !clipboardRows;
@@ -743,6 +803,13 @@
         rowContextMenu.style.left = `${Math.max(4, Math.min(event.clientX, innerWidth - menuWidth - 4))}px`;
         rowContextMenu.style.top = `${Math.max(4, Math.min(event.clientY, innerHeight - menuHeight - 4))}px`;
     };
+    document.getElementById('bom-table').addEventListener('click', event => {
+        const tableRow = event.target.closest('tr[rowid]');
+        const rowNode = tableRow && gridTable?.getRowNode(tableRow);
+        if (rowNode?.item?.category && !rowNode.item.isColorCodesSummary) {
+            contextCategory = rowNode.item.category;
+        }
+    });
     document.getElementById('bom-table').addEventListener('contextmenu', event => {
         const bodyArea = event.target.closest('.vxe-table--body-wrapper, .vxe-table--empty-place-wrapper');
         if (!bodyArea) return;
@@ -858,7 +925,7 @@
         }
     });
 
-    function snapshotRowTree(root) {
+    function snapshotMaterialTree(root) {
         const snapshot = [];
         const visit = (row, parentIndex = null) => {
             const index = snapshot.length;
@@ -869,6 +936,7 @@
                 unit: row.unit || '',
                 remark: row.remark || '',
                 supplier: row.supplier || '',
+                color_codes: [...(row.source_color_codes || [])],
                 color: Array.from({ length: colorColumnCount }, (_, i) => row[`color_${i}`] || ''),
                 process: Array.from({ length: colorColumnCount }, (_, i) => row[`process_${i}`] || ''),
                 custom_fields: Object.fromEntries(customColumns.map(column =>
@@ -882,19 +950,19 @@
     }
     const firstRootRow = category => gridState.rows.find(item => item.category === category)?.children?.[0] || null;
     function nextSiblingRow(row) {
-        const siblings = row.parent_id
-            ? flatMaterialRows(gridState.rows).find(item => item.item_id === row.parent_id)?.children
-            : gridState.rows.find(item => item.category === row.category)?.children;
+        const parent = row.parent_id
+            ? flatMaterialRows(gridState.rows).find(item => item.item_id === row.parent_id)
+            : gridState.rows.find(item => item.category === row.category);
+        const siblings = parent?.children;
         if (!siblings) return null;
         const index = siblings.findIndex(item => item.item_id === row.item_id);
         return siblings[index + 1] || null;
     }
     async function addMaterialRow(row) {
         const category = row?.category || lastCategory;
-        let parentID = null;
+        const parentID = row?.item_id ? row.parent_id ?? null : null;
         let beforeItemID = null;
         if (row?.item_id) {
-            parentID = row.parent_id ?? null;
             beforeItemID = nextSiblingRow(row)?.item_id ?? null;
         } else if (row?.isCategory) {
             beforeItemID = firstRootRow(category)?.item_id ?? null;
@@ -905,25 +973,24 @@
         await loadCurrentStyle();
         showStatus('已在选中行后新增物料行');
     }
-    async function addChildRow(row) {
-        if (!row?.item_id) return;
-        const beforeItemID = row.children?.[0]?.item_id ?? null;
+    async function addNodeRow(row) {
+        const category = row?.category || contextCategory;
+        const parentID = row?.item_id ?? null;
+        const beforeItemID = row?.item_id
+            ? row.children?.[0]?.item_id ?? null
+            : firstRootRow(category)?.item_id ?? null;
         await queueWrite(() => postJSON('/api/bom/row-insert', {
-            category: row.category,
-            parent_id: row.item_id,
-            before_item_id: beforeItemID,
-            items: [{}]
+            category, parent_id: parentID, before_item_id: beforeItemID, items: [{}]
         }));
         await loadCurrentStyle();
-        showStatus('已在节点行下新增子行');
+        showStatus(parentID ? '已在选中行下新增节点行' : '已新增节点行');
     }
     async function pasteRows(row) {
         if (!clipboardRows?.length) return;
         const category = row?.category || lastCategory;
-        let parentID = null;
+        const parentID = row?.item_id ? row.parent_id ?? null : null;
         let beforeItemID = null;
         if (row?.item_id) {
-            parentID = row.parent_id ?? null;
             beforeItemID = row.item_id;
         } else if (row?.isCategory) {
             beforeItemID = firstRootRow(category)?.item_id ?? null;
@@ -951,7 +1018,7 @@
         const action = event.target.closest('[data-action]')?.dataset.action;
         if (!action) return;
         if (action === 'copy' && contextRow?.item_id) {
-            clipboardRows = snapshotRowTree(contextRow);
+            clipboardRows = snapshotMaterialTree(contextRow);
             rowContextMenu.querySelector('[data-action="paste"]').disabled = false;
             showStatus(`已复制 ${clipboardRows.length} 行（含子行）`);
             hideRowContextMenu();
@@ -959,7 +1026,7 @@
         }
         const operations = {
             'add-row': addMaterialRow,
-            'add-node': addChildRow,
+            'add-node': addNodeRow,
             paste: pasteRows,
             delete: deleteMaterialRow
         };
@@ -1000,19 +1067,13 @@
             fetchJSON(`/api/bom/header?${bomQuery()}`),
             fetchJSON(`/api/bom/matrix?${bomQuery()}`)
         ]);
+        savedColorCodeValues = upperColorCodes(matrix.data);
         savedHeader = {};
-        savedFooter = {};
         headerDefinitions.forEach(([field]) => {
             const input = fieldInput(field);
             input.value = header[field] || '';
             input.disabled = false;
             savedHeader[field] = input.value;
-        });
-        footerDefinitions.forEach(([field]) => {
-            const input = footerInput(field);
-            input.value = header[field] || '';
-            input.disabled = false;
-            savedFooter[field] = input.value;
         });
         syncCustomColumns(matrix.custom_columns || [], matrix.hidden_columns || []);
         gridState.rows = displayRows(matrix.data || []);
@@ -1025,7 +1086,24 @@
     }
 
     async function persistEditedCell({ row, column }) {
-        if (!row || !row.item_id) return;
+        if (!row) return;
+        if (row.isColorCodesSummary) {
+            const columnConfig = columns.find(item => item.field === column?.field);
+            if (!Number.isInteger(columnConfig?.colorIndex)) return;
+            const index = columnConfig.colorIndex;
+            const value = String(row[columnConfig.field] ?? '').trim();
+            if (value === String(savedColorCodeValues[index] ?? '').trim()) return;
+            try {
+                await queueWrite(() => postJSON('/api/bom/update-color-code', { index, value }));
+                await loadCurrentStyle();
+                showStatus('Color Codes 已同步保存到 PostgreSQL');
+            } catch (error) {
+                await loadCurrentStyle();
+                showStatus(`保存 Color Codes 失败：${error.message}`, true);
+            }
+            return;
+        }
+        if (!row.item_id) return;
         const snapshot = savedRowValues.get(row.item_id) || {};
         const currentEditableFields = editableFields();
         const candidateFields = gridState.editMode === 'row' ? currentEditableFields : [column?.field];
@@ -1078,6 +1156,11 @@
                     }
                 }
             });
+            if (changedFields.includes('color_codes')) {
+                await loadCurrentStyle();
+                showStatus('Color Codes 已保存到 PostgreSQL');
+                return;
+            }
             changedFields.forEach(field => { snapshot[field] = row[field] ?? ''; });
             savedRowValues.set(row.item_id, snapshot);
             showStatus('已在 PostgreSQL 事务中保存');
@@ -1087,15 +1170,14 @@
         }
     }
 
-    async function saveHeader(input, footer = false) {
+    async function saveHeader(input) {
         const field = input.dataset.field;
-        const previous = footer ? savedFooter[field] : savedHeader[field];
+        const previous = savedHeader[field];
         const value = input.value.trim();
         if (value === previous) return;
         try {
             await queueWrite(() => postJSON('/api/bom/update-header', { field, value }));
-            if (footer) savedFooter[field] = value;
-            else savedHeader[field] = value;
+            savedHeader[field] = value;
             if (field === 'style_no') {
                 activeStyleNo = value;
                 history.replaceState(null, '', styleURL(activeStyleNo));
@@ -1109,8 +1191,6 @@
     }
     document.querySelectorAll('#header-fields input').forEach(input =>
         input.addEventListener('change', () => saveHeader(input)));
-    document.querySelectorAll('#footer-fields input').forEach(input =>
-        input.addEventListener('change', () => saveHeader(input, true)));
 
     document.getElementById('search-form').addEventListener('submit', event => {
         event.preventDefault();
