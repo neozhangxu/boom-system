@@ -771,7 +771,12 @@
                 keyboardConfig: {
                     enabled: true,
                     isArrow: true, isEnter: true, isTab: true, isEdit: true, isEsc: true,
-                    isAll: true, isDel: true, isBack: true, isClip: true, isFNR: true, isUndoRedo: true
+                    isAll: true, isDel: true, isBack: true, isClip: true, isFNR: true, isUndoRedo: true,
+                    // 自定义 Backspace 键行为：取消自动折叠，改为激活编辑状态后逐字符删除
+                    // 默认行为会一次性清空单元格（isClear: true），此处改为不清空，让用户逐字符删除
+                    backMethod: ({ $table, row, column }) => {
+                        $table.handleEdit({ row, column }, null, { isFocus: true, isPos: true });
+                    }
                 },
                 treeConfig: { childrenField: 'children', expandAll: true, trigger: 'manual', showLine: true },
                 rowConfig: { keyField: 'row_key', isCurrent: true, isHover: true },
@@ -1020,6 +1025,22 @@
         rowContextMenu.style.left = `${Math.max(4, Math.min(event.clientX, innerWidth - menuWidth - 4))}px`;
         rowContextMenu.style.top = `${Math.max(4, Math.min(event.clientY, innerHeight - menuHeight - 4))}px`;
     };
+    // 拦截 Backspace 键，取消 Vxe-Table 树形表格的自动折叠行为
+    // 当按 Backspace 时，如果焦点不在编辑输入框内，且没有选中的可编辑单元格，
+    // 则阻止默认行为以避免触发树形自动折叠到父节点
+    document.getElementById('bom-table').addEventListener('keydown', event => {
+        if (event.key !== 'Backspace' || !gridTable) return;
+        // 如果焦点在编辑输入框内，允许正常逐字符删除
+        const tag = event.target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || event.target.isContentEditable) return;
+        // 检查是否有选中的可编辑单元格（通过 DOM 查询 .vxe-cell--selected）
+        const hasSelectedCell = event.currentTarget.querySelector('.vxe-cell--selected, .col--selected');
+        // 没有选中单元格时，阻止 Backspace 触发树形自动折叠
+        if (!hasSelectedCell) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+    }, true);
     document.getElementById('bom-table').addEventListener('click', event => {
         if (event.target.closest('.vxe-cell--tree-btn')) {
             const tableRow = event.target.closest('tr[rowid]');
