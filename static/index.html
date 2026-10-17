@@ -43,6 +43,11 @@
         .row-context-menu button:hover:not(:disabled) { background: #eff6ff; }
         .row-context-menu button:disabled { color: #94a3b8; cursor: not-allowed; }
         .row-context-menu .menu-danger { color: #b91c1c; }
+        .component-context-menu { position: fixed; z-index: 32; min-width: 150px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; box-shadow: 0 8px 24px #0f172a26; }
+        .component-context-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 3px; background: white; color: #1f2937; text-align: left; }
+        .component-context-menu button:hover:not(:disabled) { background: #eff6ff; }
+        .component-context-menu button:disabled { color: #94a3b8; cursor: not-allowed; }
+        .component-context-menu .menu-danger { color: #b91c1c; }
         .column-context-menu { position: fixed; z-index: 31; min-width: 140px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; box-shadow: 0 8px 24px #0f172a26; }
         .column-context-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 3px; background: white; color: #1f2937; text-align: left; }
         .column-context-menu button:hover:not(:disabled) { background: #eff6ff; }
@@ -90,9 +95,9 @@
         </section>
         <section class="panel">
             <div class="toolbar">
+                <button class="button" id="confirm-save" type="button" disabled>确认保存</button>
                 <button class="button secondary" id="import-table" type="button">导入 Excel/CSV</button>
-                <button class="button secondary" id="export-xlsx" type="button">导出 Excel</button>
-                <button class="button secondary" id="export-csv" type="button">导出 CSV</button>
+                <button class="button secondary" id="export-table" type="button">导出 Excel/CSV</button>
                 <label>编辑模式
                     <select id="edit-mode">
                         <option value="cell">单元格编辑</option>
@@ -117,12 +122,45 @@
     </form>
 </div>
 
+<div id="export-backdrop" class="modal-backdrop" hidden>
+    <form id="export-form" class="modal">
+        <h2>导出文件</h2>
+        <label class="header-field" for="export-format">文件格式
+            <select id="export-format">
+                <option value="xlsx">Excel（.xlsx）</option>
+                <option value="csv">CSV（.csv）</option>
+            </select>
+        </label>
+        <div class="modal-actions">
+            <button class="button secondary" id="cancel-export" type="button">取消</button>
+            <button class="button" type="submit">导出</button>
+        </div>
+    </form>
+</div>
+
+<div id="component-backdrop" class="modal-backdrop" hidden>
+    <form id="component-form" class="modal">
+        <h2>添加组件</h2>
+        <label class="header-field" for="component-select">选择现有分类
+            <select id="component-select" required></select>
+        </label>
+        <div class="modal-actions">
+            <button class="button secondary" id="cancel-component" type="button">取消</button>
+            <button class="button" type="submit">添加组件</button>
+        </div>
+    </form>
+</div>
+
 <div id="row-context-menu" class="row-context-menu" role="menu" hidden>
     <button type="button" role="menuitem" data-action="add-row">添加行</button>
     <button type="button" role="menuitem" data-action="add-node">添加节点行</button>
     <button type="button" role="menuitem" data-action="copy">复制</button>
     <button type="button" role="menuitem" data-action="paste">粘贴</button>
     <button type="button" role="menuitem" data-action="delete" class="menu-danger">删除</button>
+</div>
+<div id="component-context-menu" class="component-context-menu" role="menu" hidden>
+    <button type="button" role="menuitem" data-action="add-component">添加组件</button>
+    <button type="button" role="menuitem" data-action="delete-component" class="menu-danger">删除组件</button>
 </div>
 <div id="column-context-menu" class="column-context-menu" role="menu" hidden>
     <button type="button" role="menuitem" data-action="add">添加列</button>
@@ -181,6 +219,7 @@
         ['request_finish_date', 'Request Finish Date']
     ];
     const colorColumnCount = 8;
+    const activeComponents = reactive(categoryNames.map(([category]) => category));
     const gridState = reactive({ rows: [], editMode: 'cell' });
     const gridColumns = [
         { field: 'category_label', title: '分类', width: 90 },
@@ -206,10 +245,15 @@
     let writeQueue = Promise.resolve();
     let savedHeader = {};
     let savedColorCodeValues = [];
+    let hasUnsavedChanges = false;
+    let isSavingDraft = false;
+    let nextDraftItemID = -1;
+    let draftColumnTitles = {};
 
     const status = document.getElementById('status');
     const listStatus = document.getElementById('list-status');
     const styleList = document.getElementById('style-list');
+    const confirmSaveButton = document.getElementById('confirm-save');
     const bomQuery = () => `bom_id=${encodeURIComponent(activeStyleNo)}`;
     const styleURL = styleNo => {
         const url = new URL(location.href);
@@ -222,6 +266,21 @@
         if (!isError) window.setTimeout(() => {
             if (status.textContent === message) status.textContent = '';
         }, 3500);
+    };
+    const updateSaveButton = () => {
+        confirmSaveButton.disabled = !activeStyleNo || isSavingDraft;
+        confirmSaveButton.textContent = isSavingDraft
+            ? '正在保存…'
+            : hasUnsavedChanges ? '确认保存 *' : '确认保存';
+    };
+    const markUnsavedChanges = message => {
+        hasUnsavedChanges = true;
+        updateSaveButton();
+        showStatus(message || '页面有未保存的修改，请点击“确认保存”写入数据库');
+    };
+    const discardUnsavedChanges = () => {
+        hasUnsavedChanges = false;
+        updateSaveButton();
     };
     window.addEventListener('error', event => {
         showStatus(`页面脚本错误：${event.message || '请查看浏览器控制台'}`, true);
@@ -285,10 +344,11 @@
     } catch (error) {
         showStatus(`读取自定义列名失败：${error.message}`, true);
     }
+    draftColumnTitles = { ...savedColumnTitles };
     const columns = reactive(gridColumns.map(column => ({
         ...column,
-        title: typeof savedColumnTitles[column.field] === 'string' && savedColumnTitles[column.field].trim()
-            ? savedColumnTitles[column.field].trim()
+        title: typeof draftColumnTitles[column.field] === 'string' && draftColumnTitles[column.field].trim()
+            ? draftColumnTitles[column.field].trim()
             : column.title,
         editable: column.field !== 'category_label',
         editableTitle: !fixedColumnFields.has(column.field)
@@ -301,8 +361,8 @@
             !hiddenBuiltInColumns.includes(column.field)
         ).map(column => ({
             ...column,
-            title: typeof savedColumnTitles[column.field] === 'string' && savedColumnTitles[column.field].trim()
-                ? savedColumnTitles[column.field].trim()
+            title: typeof draftColumnTitles[column.field] === 'string' && draftColumnTitles[column.field].trim()
+                ? draftColumnTitles[column.field].trim()
                 : column.title,
             editable: column.field !== 'category_label',
             editableTitle: !fixedColumnFields.has(column.field)
@@ -334,37 +394,16 @@
             return;
         }
         if (column.customId) {
-            try {
-                await queueWrite(() => postJSON('/api/bom/custom-column', {
-                    action: 'rename',
-                    column_id: column.customId,
-                    title
-                }));
-                column.title = title;
-                const metadata = customColumns.map(item => item.id === column.customId
-                    ? { ...item, title }
-                    : { ...item });
-                syncCustomColumns(metadata);
-                showStatus('自定义列名已保存到 PostgreSQL');
-            } catch (error) {
-                showStatus(`保存自定义列名失败：${error.message}`, true);
-            }
+            const metadata = customColumns.map(item => item.id === column.customId
+                ? { ...item, title }
+                : { ...item });
+            syncCustomColumns(metadata);
+            markUnsavedChanges('自定义列名已修改，点击“确认保存”后写入数据库');
             return;
         }
-        const previous = column.title;
-        const previousSavedTitle = savedColumnTitles[column.field];
         column.title = title;
-        try {
-            savedColumnTitles[column.field] = title;
-            localStorage.setItem(columnTitleStorageKey, JSON.stringify(savedColumnTitles));
-        } catch (error) {
-            column.title = previous;
-            if (previousSavedTitle === undefined) delete savedColumnTitles[column.field];
-            else savedColumnTitles[column.field] = previousSavedTitle;
-            showStatus(`保存自定义列名失败：${error.message}`, true);
-            return;
-        }
-        showStatus('列名已保存到当前浏览器');
+        draftColumnTitles[column.field] = title;
+        markUnsavedChanges('列名已修改，点击“确认保存”后应用');
     };
     const editableFields = () => columns.filter(column => column.editable).map(column => column.field);
     const colorCodesText = values => {
@@ -415,7 +454,7 @@
     const flatMaterialRows = rows => {
         const result = [];
         const visit = items => items.forEach(row => {
-            if (row.item_id) result.push(row);
+            if (row.row_key && !row.isCategory && !row.isColorCodesSummary) result.push(row);
             if (row.children?.length) visit(row.children);
         });
         visit(rows || []);
@@ -572,6 +611,37 @@
                 rows[row.parent_row - 1].category !== row.category));
         if (invalidParent >= 0) throw new Error(`第 ${invalidParent + 2} 行的父级行号无效或分类不一致`);
     }
+    const validateCategoryList = components => Array.isArray(components) &&
+        new Set(components).size === components.length &&
+        components.every(component => categoryNames.some(([value]) => value === component));
+    function draftItemsFromImport(rows) {
+        const itemIDs = [];
+        const nextOrder = new Map();
+        return rows.map(item => {
+            const itemID = nextDraftItemID--;
+            itemIDs.push(itemID);
+            const parentID = item.parent_row === null ? null : itemIDs[item.parent_row - 1];
+            const orderKey = `${item.category}:${parentID ?? 0}`;
+            const sortOrder = nextOrder.get(orderKey) || 0;
+            nextOrder.set(orderKey, sortOrder + 1);
+            return {
+                item_id: itemID,
+                category: item.category,
+                parent_id: parentID,
+                sort_order: sortOrder,
+                no: item.no,
+                parts: item.parts,
+                material_description: item.material_description,
+                unit: item.unit,
+                supplier: item.supplier,
+                remark: item.remark,
+                color_codes: item.color_codes || [],
+                color: item.color || [],
+                process: item.process || [],
+                custom_fields: item.custom_fields || {}
+            };
+        });
+    }
     async function importTableFile({ file }) {
         try {
             if (!activeStyleNo) throw new Error('请先选择鞋款');
@@ -581,9 +651,11 @@
                 showStatus('已取消导入');
                 return;
             }
-            await queueWrite(() => postJSON('/api/bom/import', { rows }));
-            await loadCurrentStyle();
-            showStatus(`已事务导入 ${rows.length} 行`);
+            rows.forEach(item => {
+                if (!activeComponents.includes(item.category)) insertComponentRow(item.category);
+            });
+            gridState.rows = displayRows(draftItemsFromImport(rows));
+            markUnsavedChanges(`已将 ${rows.length} 行导入页面草稿，点击“确认保存”后写入数据库`);
         } catch (error) {
             showStatus(`导入失败：${error.message}`, true);
             throw error;
@@ -615,7 +687,7 @@
                     autoClear: true,
                     showStatus: true,
                     beforeEditMethod: ({ row, column }) => !!row.item_id ||
-                        (!!row.isColorCodesSummary && Number.isInteger(
+                        (!!row.isColorCodesSummary && activeComponents.includes('upper') && Number.isInteger(
                             columns.find(item => item.field === column.field)?.colorIndex
                         ))
                 },
@@ -737,31 +809,33 @@
             rowsByID.set(row.item_id, row);
         });
         const colorCodes = upperColorCodes(items);
-        const categoryRows = categoryNames.map(([category]) => {
-            const categoryItems = [...rowsByID.values()]
-                .filter(item => item.category === category)
-                .sort((left, right) => left.sort_order - right.sort_order || left.item_id - right.item_id);
-            const roots = [];
-            categoryItems.forEach(row => {
-                const parent = rowsByID.get(row.parent_id);
-                if (parent?.category === category) parent.children.push(row);
-                else roots.push(row);
+        const categoryRows = categoryNames
+            .filter(([category]) => activeComponents.includes(category))
+            .map(([category]) => {
+                const categoryItems = [...rowsByID.values()]
+                    .filter(item => item.category === category)
+                    .sort((left, right) => left.sort_order - right.sort_order || left.item_id - right.item_id);
+                const roots = [];
+                categoryItems.forEach(row => {
+                    const parent = rowsByID.get(row.parent_id);
+                    if (parent?.category === category) parent.children.push(row);
+                    else roots.push(row);
+                });
+                const sortChildren = rows => rows.forEach(row => {
+                    row.children.sort((left, right) =>
+                        left.sort_order - right.sort_order || left.item_id - right.item_id
+                    );
+                    sortChildren(row.children);
+                });
+                sortChildren(roots);
+                return {
+                    row_key: `category-${category}`,
+                    category,
+                    category_label: labels[category],
+                    isCategory: true,
+                    children: roots
+                };
             });
-            const sortChildren = rows => rows.forEach(row => {
-                row.children.sort((left, right) =>
-                    left.sort_order - right.sort_order || left.item_id - right.item_id
-                );
-                sortChildren(row.children);
-            });
-            sortChildren(roots);
-            return {
-                row_key: `category-${category}`,
-                category,
-                category_label: labels[category],
-                isCategory: true,
-                children: roots
-            };
-        });
         return [{
             row_key: 'color-codes-summary',
             category: 'upper',
@@ -778,25 +852,147 @@
 
     const rowContextMenu = document.getElementById('row-context-menu');
     const columnContextMenu = document.getElementById('column-context-menu');
-    const lastCategory = categoryNames[categoryNames.length - 1][0];
+    const componentContextMenu = document.getElementById('component-context-menu');
+    const lastCategory = () => activeComponents.at(-1) || '';
     let contextRow = null;
     let contextCategory = 'upper';
     let clipboardRows = null;
     let contextColumn = null;
     let clipboardColumn = null;
+    let contextComponent = null;
+    const componentLabel = category => categoryNames.find(([value]) => value === category)?.[1] || category;
+    const isComponentRow = row =>
+        row?.isCategory === true &&
+        row.isColorCodesSummary !== true &&
+        categoryNames.some(([category]) => category === row.category);
+    const isMaterialRow = row =>
+        typeof row?.row_key === 'string' &&
+        (row.row_key.startsWith('item-') || row.row_key.startsWith('draft-'));
+    const findMaterialRowByKey = rowKey =>
+        flatMaterialRows(gridState.rows).find(item => item.row_key === rowKey) || null;
+    const hideComponentContextMenu = () => {
+        componentContextMenu.hidden = true;
+        contextComponent = null;
+    };
+    const showComponentContextMenu = (category, event, adjacentMenu = null) => {
+        contextComponent = activeComponents.includes(category) ? category : null;
+        const addButton = componentContextMenu.querySelector('[data-action="add-component"]');
+        const deleteButton = componentContextMenu.querySelector('[data-action="delete-component"]');
+        addButton.disabled = !categoryNames.some(([candidate]) => !activeComponents.includes(candidate));
+        deleteButton.disabled = !contextComponent;
+        componentContextMenu.hidden = false;
+        const menuWidth = componentContextMenu.offsetWidth;
+        const menuHeight = componentContextMenu.offsetHeight;
+        const adjacentRect = adjacentMenu?.getBoundingClientRect();
+        let left = Math.max(4, Math.min(event.clientX, innerWidth - menuWidth - 4));
+        let top = Math.max(4, Math.min(event.clientY, innerHeight - menuHeight - 4));
+        if (adjacentRect) {
+            const rightSpace = innerWidth - adjacentRect.right - 8;
+            const leftSpace = adjacentRect.left - 8;
+            if (rightSpace >= menuWidth) {
+                left = adjacentRect.right + 4;
+                top = Math.max(4, Math.min(adjacentRect.top, innerHeight - menuHeight - 4));
+            } else if (leftSpace >= menuWidth) {
+                left = adjacentRect.left - menuWidth - 4;
+                top = Math.max(4, Math.min(adjacentRect.top, innerHeight - menuHeight - 4));
+            } else {
+                const combinedHeight = adjacentRect.height + menuHeight + 4;
+                top = Math.max(4, Math.min(adjacentRect.top, innerHeight - combinedHeight - 4));
+                adjacentMenu.style.top = `${top}px`;
+                left = Math.max(4, Math.min(adjacentRect.left, innerWidth - menuWidth - 4));
+                top += adjacentRect.height + 4;
+            }
+        }
+        componentContextMenu.style.left = `${left}px`;
+        componentContextMenu.style.top = `${top}px`;
+    };
+    const refreshComponentOptions = () => {
+        const select = document.getElementById('component-select');
+        const available = categoryNames.filter(([category]) => !activeComponents.includes(category));
+        select.replaceChildren(...available.map(([category, label]) => {
+            const option = document.createElement('option');
+            option.value = category;
+            option.textContent = label;
+            return option;
+        }));
+        document.querySelector('#component-form [type="submit"]').disabled = !available.length;
+    };
+    const insertComponentRow = category => {
+        if (!categoryNames.some(([value]) => value === category) || activeComponents.includes(category)) return;
+        activeComponents.push(category);
+        activeComponents.sort((left, right) =>
+            categoryNames.findIndex(([value]) => value === left) -
+            categoryNames.findIndex(([value]) => value === right)
+        );
+        const row = {
+            row_key: `category-${category}`,
+            category,
+            category_label: componentLabel(category),
+            isCategory: true,
+            children: []
+        };
+        const categoryPosition = activeComponents.indexOf(category);
+        gridState.rows.splice(categoryPosition + 1, 0, row);
+        markUnsavedChanges(`已添加组件「${componentLabel(category)}」，点击“确认保存”后写入数据库`);
+    };
+    const deleteComponent = category => {
+        const rowIndex = gridState.rows.findIndex(row => row.isCategory && row.category === category);
+        if (rowIndex < 0) throw new Error('找不到要删除的组件');
+        const row = gridState.rows[rowIndex];
+        const itemCount = flatMaterialRows(row.children || []).length;
+        if (!confirm(`删除组件「${componentLabel(category)}」将同时删除该分类下的 ${itemCount} 条物料，确认吗？`)) {
+            return;
+        }
+        gridState.rows.splice(rowIndex, 1);
+        activeComponents.splice(activeComponents.indexOf(category), 1);
+        if (category === 'upper') {
+            const colorCodesRow = gridState.rows.find(item => item.isColorCodesSummary);
+            if (colorCodesRow) {
+                for (let index = 0; index < colorColumnCount; index++) {
+                    colorCodesRow[`color_${index}`] = '';
+                }
+            }
+        }
+        markUnsavedChanges(`已删除组件「${componentLabel(category)}」及其物料，点击“确认保存”后同步数据库`);
+    };
+    componentContextMenu.addEventListener('click', event => {
+        const action = event.target.closest('[data-action]')?.dataset.action;
+        if (!action) return;
+        const category = contextComponent;
+        hideComponentContextMenu();
+        if (action === 'add-component') {
+            refreshComponentOptions();
+            document.getElementById('component-backdrop').hidden = false;
+            document.getElementById('component-select').focus();
+        } else if (action === 'delete-component' && category) {
+            deleteComponent(category);
+        }
+    });
+    document.getElementById('cancel-component').addEventListener('click', () => {
+        document.getElementById('component-backdrop').hidden = true;
+    });
+    document.getElementById('component-form').addEventListener('submit', event => {
+        event.preventDefault();
+        const category = document.getElementById('component-select').value;
+        document.getElementById('component-backdrop').hidden = true;
+        insertComponentRow(category);
+    });
     const hideRowContextMenu = () => {
         rowContextMenu.hidden = true;
         contextRow = null;
     };
     const showRowContextMenu = (row, event) => {
         contextRow = row || null;
-        const isItem = !!row?.item_id;
+        const isItem = isMaterialRow(row);
+        const targetCategory = row?.category || lastCategory();
+        const categoryEnabled = !!targetCategory && activeComponents.includes(targetCategory);
         if (row?.category) contextCategory = row.category;
         rowContextMenu.querySelector('[data-action="add-node"]').disabled =
-            row?.isColorCodesSummary === true;
+            row?.isColorCodesSummary === true || !categoryEnabled;
+        rowContextMenu.querySelector('[data-action="add-row"]').disabled = !categoryEnabled;
         rowContextMenu.querySelector('[data-action="copy"]').disabled = !isItem;
-        rowContextMenu.querySelector('[data-action="delete"]').disabled = !isItem;
-        rowContextMenu.querySelector('[data-action="paste"]').disabled = !clipboardRows;
+        rowContextMenu.querySelector('[data-action="delete"]').disabled = !isMaterialRow(row);
+        rowContextMenu.querySelector('[data-action="paste"]').disabled = !clipboardRows || !categoryEnabled;
         rowContextMenu.hidden = false;
         const menuWidth = rowContextMenu.offsetWidth;
         const menuHeight = rowContextMenu.offsetHeight;
@@ -806,9 +1002,9 @@
     document.getElementById('bom-table').addEventListener('click', event => {
         const tableRow = event.target.closest('tr[rowid]');
         const rowNode = tableRow && gridTable?.getRowNode(tableRow);
-        if (rowNode?.item?.category && !rowNode.item.isColorCodesSummary) {
-            contextCategory = rowNode.item.category;
-        }
+        if (!rowNode?.item?.category) return;
+        if (!rowNode.item.isColorCodesSummary) contextCategory = rowNode.item.category;
+        hideComponentContextMenu();
     });
     document.getElementById('bom-table').addEventListener('contextmenu', event => {
         const bodyArea = event.target.closest('.vxe-table--body-wrapper, .vxe-table--empty-place-wrapper');
@@ -818,7 +1014,16 @@
         hideColumnContextMenu();
         const tableRow = event.target.closest('tr[rowid]');
         const rowNode = tableRow && gridTable?.getRowNode(tableRow);
-        showRowContextMenu(rowNode?.item || null, event);
+        const rowKey = tableRow?.getAttribute('rowid');
+        const row = rowNode?.item || findMaterialRowByKey(rowKey) ||
+            gridState.rows.find(item => item.row_key === rowKey) || null;
+        if (isComponentRow(row)) {
+            showRowContextMenu(row, event);
+            showComponentContextMenu(row.category, event, rowContextMenu);
+            return;
+        }
+        hideComponentContextMenu();
+        showRowContextMenu(row, event);
     });
     const hideColumnContextMenu = () => {
         columnContextMenu.hidden = true;
@@ -855,33 +1060,42 @@
     document.addEventListener('click', event => {
         if (!rowContextMenu.contains(event.target)) hideRowContextMenu();
         if (!columnContextMenu.contains(event.target)) hideColumnContextMenu();
+        if (!componentContextMenu.contains(event.target) &&
+            !event.target.closest('#bom-table tr[rowid]')) hideComponentContextMenu();
     });
     document.addEventListener('keydown', event => {
         if (event.key === 'Escape') {
             hideRowContextMenu();
             hideColumnContextMenu();
+            hideComponentContextMenu();
         }
     });
     window.addEventListener('scroll', () => {
         hideRowContextMenu();
         hideColumnContextMenu();
+        hideComponentContextMenu();
     }, true);
 
     async function saveCustomColumn(column, paste = false) {
         const position = column ? columns.indexOf(column) + 1 : columns.length;
-        const values = paste ? clipboardColumn.values : [];
+        const values = new Map((paste ? clipboardColumn.values : [])
+            .map(item => [item.item_id, item.value]));
         const newColumn = {
             id: crypto.randomUUID(),
             title: paste ? clipboardColumn.title : `自定义列 ${customColumns.length + 1}`,
             position
         };
-        await queueWrite(() => postJSON('/api/bom/custom-column', {
-            action: 'add',
-            column: newColumn,
-            values
+        const metadata = customColumns.map(item => ({
+            ...item,
+            position: item.position >= position ? item.position + 1 : item.position
         }));
-        await loadCurrentStyle();
-        showStatus(values.length ? '已复制并粘贴整列' : '已在目标列后添加新列');
+        metadata.push(newColumn);
+        syncCustomColumns(metadata);
+        flatMaterialRows(gridState.rows).forEach(row => {
+            row[`custom_${newColumn.id}`] = values.get(row.item_id) || '';
+        });
+        markUnsavedChanges(values.size ? '已复制并粘贴整列，点击“确认保存”后写入数据库' :
+            '已添加自定义列，点击“确认保存”后写入数据库');
     }
     columnContextMenu.addEventListener('click', event => {
         const action = event.target.closest('[data-action]')?.dataset.action;
@@ -916,12 +1130,31 @@
         }
         if (action === 'delete' && selectedColumn) {
             if (!confirm(`确定删除列「${selectedColumn.title}」吗？`)) return;
-            const columnID = selectedColumn.customId || selectedColumn.field;
-            queueWrite(() => postJSON('/api/bom/custom-column', {
-                action: 'delete',
-                column_id: columnID
-            })).then(loadCurrentStyle).then(() => showStatus(`已删除列「${selectedColumn.title}」`))
-                .catch(error => showStatus(`删除列失败：${error.message}`, true));
+            const position = selectedColumn.customId
+                ? customColumns.find(item => item.id === selectedColumn.customId)?.position
+                : columns.indexOf(selectedColumn) + 1;
+            if (selectedColumn.customId) {
+                const metadata = customColumns
+                    .filter(item => item.id !== selectedColumn.customId)
+                    .map(item => ({
+                        ...item,
+                        position: item.position > position ? item.position - 1 : item.position
+                    }));
+                flatMaterialRows(gridState.rows).forEach(row => {
+                    delete row[selectedColumn.field];
+                });
+                syncCustomColumns(metadata);
+            } else {
+                if (!hiddenBuiltInColumns.includes(selectedColumn.field)) {
+                    hiddenBuiltInColumns.push(selectedColumn.field);
+                }
+                const metadata = customColumns.map(item => ({
+                    ...item,
+                    position: item.position > position ? item.position - 1 : item.position
+                }));
+                syncCustomColumns(metadata, hiddenBuiltInColumns);
+            }
+            markUnsavedChanges(`已删除列「${selectedColumn.title}」，点击“确认保存”后写入数据库`);
         }
     });
 
@@ -931,6 +1164,7 @@
             const index = snapshot.length;
             snapshot.push({
                 parent_index: parentIndex,
+                no: row.no === '' ? null : row.no,
                 parts: row.parts || '',
                 material_description: row.material_description || '',
                 unit: row.unit || '',
@@ -958,8 +1192,50 @@
         const index = siblings.findIndex(item => item.item_id === row.item_id);
         return siblings[index + 1] || null;
     }
+    function findMaterialRow(itemID) {
+        return flatMaterialRows(gridState.rows).find(item => item.item_id === itemID) || null;
+    }
+    function insertDraftRows(category, parentID, beforeItemID, snapshots) {
+        const parent = parentID === null ? null : findMaterialRow(parentID);
+        const categoryRow = gridState.rows.find(item => item.isCategory && item.category === category);
+        const siblings = parent ? parent.children : categoryRow?.children;
+        if (!siblings) throw new Error('找不到目标分类或父级行');
+        const created = [];
+        const roots = [];
+        snapshots.forEach((item, index) => {
+            const itemID = nextDraftItemID--;
+            const parentRow = item.parent_index === null ? null : created[item.parent_index];
+            const row = {
+                ...item,
+                item_id: itemID,
+                row_key: `draft-${Math.abs(itemID)}`,
+                category,
+                category_label: '',
+                parent_id: parentRow?.item_id ?? parentID,
+                sort_order: index,
+                no: item.no ?? '',
+                source_color_codes: [...(item.color_codes || [])],
+                color_codes: '',
+                children: []
+            };
+            for (let colorIndex = 0; colorIndex < colorColumnCount; colorIndex++) {
+                row[`color_${colorIndex}`] = item.color?.[colorIndex] || '';
+                row[`process_${colorIndex}`] = item.process?.[colorIndex] || '';
+            }
+            customColumns.forEach(column => {
+                row[`custom_${column.id}`] = item.custom_fields?.[column.id] || '';
+            });
+            created.push(row);
+            if (parentRow) parentRow.children.push(row);
+            else roots.push(row);
+        });
+        const targetIndex = beforeItemID === null
+            ? siblings.length
+            : siblings.findIndex(item => item.item_id === beforeItemID);
+        siblings.splice(targetIndex < 0 ? siblings.length : targetIndex, 0, ...roots);
+    }
     async function addMaterialRow(row) {
-        const category = row?.category || lastCategory;
+        const category = row?.category || lastCategory();
         const parentID = row?.item_id ? row.parent_id ?? null : null;
         let beforeItemID = null;
         if (row?.item_id) {
@@ -967,11 +1243,20 @@
         } else if (row?.isCategory) {
             beforeItemID = firstRootRow(category)?.item_id ?? null;
         }
-        await queueWrite(() => postJSON('/api/bom/row-insert', {
-            category, parent_id: parentID, before_item_id: beforeItemID, items: [{}]
-        }));
-        await loadCurrentStyle();
-        showStatus('已在选中行后新增物料行');
+        insertDraftRows(category, parentID, beforeItemID, [{
+            parent_index: null,
+            no: null,
+            parts: '',
+            material_description: '',
+            unit: '',
+            remark: '',
+            supplier: '',
+            color_codes: [],
+            color: [],
+            process: [],
+            custom_fields: {}
+        }]);
+        markUnsavedChanges('已新增物料行，点击“确认保存”后写入数据库');
     }
     async function addNodeRow(row) {
         const category = row?.category || contextCategory;
@@ -979,15 +1264,26 @@
         const beforeItemID = row?.item_id
             ? row.children?.[0]?.item_id ?? null
             : firstRootRow(category)?.item_id ?? null;
-        await queueWrite(() => postJSON('/api/bom/row-insert', {
-            category, parent_id: parentID, before_item_id: beforeItemID, items: [{}]
-        }));
-        await loadCurrentStyle();
-        showStatus(parentID ? '已在选中行下新增节点行' : '已新增节点行');
+        insertDraftRows(category, parentID, beforeItemID, [{
+            parent_index: null,
+            no: null,
+            parts: '',
+            material_description: '',
+            unit: '',
+            remark: '',
+            supplier: '',
+            color_codes: [],
+            color: [],
+            process: [],
+            custom_fields: {}
+        }]);
+        markUnsavedChanges(parentID
+            ? '已新增子节点行，点击“确认保存”后写入数据库'
+            : '已新增节点行，点击“确认保存”后写入数据库');
     }
     async function pasteRows(row) {
         if (!clipboardRows?.length) return;
-        const category = row?.category || lastCategory;
+        const category = row?.category || lastCategory();
         const parentID = row?.item_id ? row.parent_id ?? null : null;
         let beforeItemID = null;
         if (row?.item_id) {
@@ -995,29 +1291,32 @@
         } else if (row?.isCategory) {
             beforeItemID = firstRootRow(category)?.item_id ?? null;
         }
-        await queueWrite(() => postJSON('/api/bom/row-insert', {
-            category, parent_id: parentID, before_item_id: beforeItemID, items: clipboardRows
-        }));
-        await loadCurrentStyle();
-        showStatus(`已粘贴 ${clipboardRows.length} 行（含子行）`);
+        insertDraftRows(category, parentID, beforeItemID, clipboardRows);
+        markUnsavedChanges(`已粘贴 ${clipboardRows.length} 行（含子行），点击“确认保存”后写入数据库`);
     }
     async function deleteMaterialRow(row) {
-        if (!row?.item_id) return;
-        const descendantCount = flatMaterialRows(row.children || []).length;
+        if (!isMaterialRow(row)) return;
+        const target = findMaterialRowByKey(row.row_key) ||
+            flatMaterialRows(gridState.rows).find(item => item.item_id === row.item_id);
+        if (!target) throw new Error('找不到要删除的物料行');
+        const descendantCount = flatMaterialRows(target.children || []).length;
         const description = descendantCount
             ? `该节点包含 ${descendantCount} 条子行，确定删除本行及所有子行吗？`
             : '确定删除选中的物料行吗？';
         if (!confirm(description)) return;
-        await queueWrite(() => postJSON('/api/bom/row-delete', {
-            category: row.category, item_id: row.item_id
-        }));
-        await loadCurrentStyle();
-        showStatus('已删除选中物料行');
+        const parent = target.parent_id ? findMaterialRow(target.parent_id) : null;
+        const siblings = parent
+            ? parent.children
+            : gridState.rows.find(item => item.isCategory && item.category === target.category)?.children;
+        const rowIndex = siblings?.findIndex(item => item.row_key === target.row_key) ?? -1;
+        if (rowIndex < 0) throw new Error('找不到要删除的物料行');
+        siblings.splice(rowIndex, 1);
+        markUnsavedChanges('已删除物料行，点击“确认保存”后同步数据库');
     }
     rowContextMenu.addEventListener('click', event => {
         const action = event.target.closest('[data-action]')?.dataset.action;
         if (!action) return;
-        if (action === 'copy' && contextRow?.item_id) {
+        if (action === 'copy' && isMaterialRow(contextRow)) {
             clipboardRows = snapshotMaterialTree(contextRow);
             rowContextMenu.querySelector('[data-action="paste"]').disabled = false;
             showStatus(`已复制 ${clipboardRows.length} 行（含子行）`);
@@ -1044,8 +1343,12 @@
             const button = document.createElement('button');
             button.className = `style-option${item.style_no === activeStyleNo ? ' active' : ''}`;
             button.type = 'button';
-            button.textContent = `${item.style_no}${item.style_name ? `  ·  ${item.style_name}` : ''}`;
+            button.dataset.styleNo = item.style_no;
+            button.textContent = `${item.style_no}${item.brand ? `  +  ${item.brand}` : ''}`;
             button.addEventListener('click', () => {
+                if (hasUnsavedChanges &&
+                    !confirm('当前页面有未保存的修改，切换鞋款将放弃这些修改。继续吗？')) return;
+                discardUnsavedChanges();
                 activeStyleNo = item.style_no;
                 history.pushState(null, '', styleURL(activeStyleNo));
                 loadCurrentStyle().catch(error => showStatus(error.message, true));
@@ -1057,9 +1360,12 @@
     }
 
     async function loadCurrentStyle() {
+        if (hasUnsavedChanges) throw new Error('当前鞋款有未保存的修改');
         if (!activeStyleNo) {
             gridState.rows = [];
             savedRowValues.clear();
+            activeComponents.splice(0);
+            updateSaveButton();
             return;
         }
         showStatus('正在加载鞋款…');
@@ -1068,6 +1374,13 @@
             fetchJSON(`/api/bom/matrix?${bomQuery()}`)
         ]);
         savedColorCodeValues = upperColorCodes(matrix.data);
+        const components = Array.isArray(matrix.components) ? matrix.components : categoryNames.map(([value]) => value);
+        if (validateCategoryList(components)) {
+            activeComponents.splice(0, activeComponents.length, ...components);
+        } else {
+            throw new Error('数据库组件清单包含无效分类');
+        }
+        draftColumnTitles = { ...savedColumnTitles };
         savedHeader = {};
         headerDefinitions.forEach(([field]) => {
             const input = fieldInput(field);
@@ -1082,6 +1395,7 @@
             Object.fromEntries(editableFields().map(field => [field, row[field] ?? '']))
         ]));
         document.title = `${header.style_no} - ${header.style_name || 'BOM'}`;
+        updateSaveButton();
         showStatus(`${flatMaterialRows(gridState.rows).length} 行物料已加载`);
     }
 
@@ -1093,14 +1407,28 @@
             const index = columnConfig.colorIndex;
             const value = String(row[columnConfig.field] ?? '').trim();
             if (value === String(savedColorCodeValues[index] ?? '').trim()) return;
-            try {
-                await queueWrite(() => postJSON('/api/bom/update-color-code', { index, value }));
-                await loadCurrentStyle();
-                showStatus('Color Codes 已同步保存到 PostgreSQL');
-            } catch (error) {
-                await loadCurrentStyle();
-                showStatus(`保存 Color Codes 失败：${error.message}`, true);
+            const colorCodes = Array.from({ length: colorColumnCount }, (_, colorIndex) =>
+                String(row[`color_${colorIndex}`] ?? '').trim());
+            while (colorCodes.length && !colorCodes[colorCodes.length - 1]) colorCodes.pop();
+            let upperRows = flatMaterialRows(gridState.rows).filter(item => item.category === 'upper');
+            if (!upperRows.length) {
+                insertDraftRows('upper', null, null, [{
+                    parent_index: null,
+                    no: null,
+                    parts: '',
+                    material_description: '',
+                    unit: '',
+                    remark: '',
+                    supplier: '',
+                    color_codes: colorCodes,
+                    color: [],
+                    process: [],
+                    custom_fields: {}
+                }]);
+                upperRows = flatMaterialRows(gridState.rows).filter(item => item.category === 'upper');
             }
+            upperRows.forEach(item => { item.source_color_codes = [...colorCodes]; });
+            markUnsavedChanges('Color Codes 已修改，点击“确认保存”后同步数据库');
             return;
         }
         if (!row.item_id) return;
@@ -1114,60 +1442,11 @@
         if (!changedFields.length) return;
         try {
             await gridTable.validateField(row, changedFields);
-        } catch {
-            showStatus('物料编号校验未通过，请修正后再保存', true);
+        } catch (error) {
+            showStatus(`物料编号校验未通过：${error.message || '请修正后再保存'}`, true);
             return;
         }
-        try {
-            await queueWrite(async () => {
-                for (const field of changedFields) {
-                    const columnConfig = columns.find(column => column.field === field);
-                    const value = String(row[field] ?? '');
-                    if (Number.isInteger(columnConfig?.colorIndex)) {
-                        await postJSON('/api/bom/update-cell', {
-                            category: row.category,
-                            item_id: row.item_id,
-                            field_type: 'color',
-                            index: columnConfig.colorIndex,
-                            value
-                        });
-                    } else if (Number.isInteger(columnConfig?.processIndex)) {
-                        await postJSON('/api/bom/update-cell', {
-                            category: row.category,
-                            item_id: row.item_id,
-                            field_type: 'process',
-                            index: columnConfig.processIndex,
-                            value
-                        });
-                    } else if (columnConfig?.customId) {
-                        await postJSON('/api/bom/update-custom-cell', {
-                            category: row.category,
-                            item_id: row.item_id,
-                            column_id: columnConfig.customId,
-                            value
-                        });
-                    } else {
-                        await postJSON('/api/bom/update-row', {
-                            category: row.category,
-                            item_id: row.item_id,
-                            field,
-                            value
-                        });
-                    }
-                }
-            });
-            if (changedFields.includes('color_codes')) {
-                await loadCurrentStyle();
-                showStatus('Color Codes 已保存到 PostgreSQL');
-                return;
-            }
-            changedFields.forEach(field => { snapshot[field] = row[field] ?? ''; });
-            savedRowValues.set(row.item_id, snapshot);
-            showStatus('已在 PostgreSQL 事务中保存');
-        } catch (error) {
-            await loadCurrentStyle();
-            showStatus(`保存失败：${error.message}`, true);
-        }
+        markUnsavedChanges('物料已修改，点击“确认保存”后写入数据库');
     }
 
     async function saveHeader(input) {
@@ -1175,22 +1454,108 @@
         const previous = savedHeader[field];
         const value = input.value.trim();
         if (value === previous) return;
-        try {
-            await queueWrite(() => postJSON('/api/bom/update-header', { field, value }));
-            savedHeader[field] = value;
-            if (field === 'style_no') {
-                activeStyleNo = value;
-                history.replaceState(null, '', styleURL(activeStyleNo));
-                await loadStyles();
-            }
-            showStatus('表头已保存');
-        } catch (error) {
-            input.value = previous || '';
-            showStatus(`保存失败：${error.message}`, true);
-        }
+        markUnsavedChanges(`表头「${field}」已修改，点击“确认保存”后写入数据库`);
     }
     document.querySelectorAll('#header-fields input').forEach(input =>
-        input.addEventListener('change', () => saveHeader(input)));
+        input.addEventListener('input', () => saveHeader(input)));
+
+    function serializeDraftRows() {
+        const materialRows = flatMaterialRows(gridState.rows);
+        const rowNumbers = new Map(materialRows.map((row, index) => [row.item_id, index + 1]));
+        return materialRows.map(row => {
+            const no = row.no === '' || row.no === null || row.no === undefined
+                ? null
+                : Number(row.no);
+            return {
+                category: row.category,
+                parent_row: row.parent_id ? rowNumbers.get(row.parent_id) ?? null : null,
+                no,
+                parts: String(row.parts ?? ''),
+                material_description: String(row.material_description ?? ''),
+                unit: String(row.unit ?? ''),
+                supplier: String(row.supplier ?? ''),
+                remark: String(row.remark ?? ''),
+                color_codes: [...(row.source_color_codes || [])],
+                color: Array.from({ length: colorColumnCount }, (_, index) =>
+                    String(row[`color_${index}`] ?? '')),
+                process: Array.from({ length: colorColumnCount }, (_, index) =>
+                    String(row[`process_${index}`] ?? '')),
+                custom_fields: Object.fromEntries(customColumns.map(column =>
+                    [column.id, String(row[`custom_${column.id}`] ?? '')]
+                ))
+            };
+        });
+    }
+    async function saveDraft() {
+        if (!activeStyleNo || isSavingDraft) return;
+        isSavingDraft = true;
+        updateSaveButton();
+        let databaseSaved = false;
+        const previousTitles = { ...savedColumnTitles };
+        let previousStorage = null;
+        let columnTitlesUpdated = false;
+        try {
+            await new Promise(resolve => window.setTimeout(resolve, 0));
+            if (!hasUnsavedChanges) {
+                showStatus('没有待保存的修改');
+                return;
+            }
+            await Promise.all(flatMaterialRows(gridState.rows).map(row =>
+                gridTable.validateField(row, ['no'])
+            ));
+            const rows = serializeDraftRows();
+            validateImportRows(rows);
+            const header = Object.fromEntries(headerDefinitions.map(([field]) =>
+                [field, fieldInput(field).value.trim()]));
+            if (!header.style_no) throw new Error('Style No. 不能为空');
+
+            previousStorage = localStorage.getItem(columnTitleStorageKey);
+            const nextTitles = { ...savedColumnTitles, ...draftColumnTitles };
+            localStorage.setItem(columnTitleStorageKey, JSON.stringify(nextTitles));
+            columnTitlesUpdated = true;
+            savedColumnTitles = nextTitles;
+            await queueWrite(() => postJSON('/api/bom/import', {
+                header,
+                rows,
+                custom_columns: customColumns.map(column => ({ ...column })),
+                hidden_columns: [...hiddenBuiltInColumns],
+                components: [...activeComponents]
+            }));
+            databaseSaved = true;
+            activeStyleNo = header.style_no;
+            history.replaceState(null, '', styleURL(activeStyleNo));
+            discardUnsavedChanges();
+            await Promise.all([loadStyles(), loadCurrentStyle()]);
+            showStatus(`已确认保存 ${rows.length} 行物料及表头到数据库`);
+        } catch (error) {
+            if (!databaseSaved && columnTitlesUpdated) {
+                savedColumnTitles = previousTitles;
+                try {
+                    if (previousStorage === null) localStorage.removeItem(columnTitleStorageKey);
+                    else localStorage.setItem(columnTitleStorageKey, previousStorage);
+                } catch (storageError) {
+                    showStatus(`保存未完成：${error.message}；恢复本地列名失败：${storageError.message}`, true);
+                    updateSaveButton();
+                    return;
+                }
+            }
+            if (databaseSaved) {
+                discardUnsavedChanges();
+                showStatus(`数据库已保存，但刷新页面数据失败：${error.message}`, true);
+            } else {
+                showStatus(`确认保存失败，修改仍保留在页面：${error.message}`, true);
+            }
+        } finally {
+            isSavingDraft = false;
+            updateSaveButton();
+        }
+    }
+    confirmSaveButton.addEventListener('click', () => {
+        saveDraft().catch(error => {
+            updateSaveButton();
+            showStatus(`确认保存失败：${error.message}`, true);
+        });
+    });
 
     document.getElementById('search-form').addEventListener('submit', event => {
         event.preventDefault();
@@ -1200,6 +1565,9 @@
     });
 
     document.getElementById('create-style').addEventListener('click', () => {
+        if (hasUnsavedChanges &&
+            !confirm('当前页面有未保存的修改，新增鞋款前将放弃这些修改。继续吗？')) return;
+        discardUnsavedChanges();
         document.getElementById('create-form').reset();
         document.getElementById('create-backdrop').hidden = false;
         createStyleNoInput.focus();
@@ -1230,6 +1598,9 @@
 
     document.getElementById('delete-style').addEventListener('click', async () => {
         if (!activeStyleNo || !confirm(`确定永久删除 ${activeStyleNo} 的全部鞋款、物料及签核数据吗？`)) return;
+        if (hasUnsavedChanges &&
+            !confirm('当前页面有未保存的修改，删除鞋款会一并放弃这些修改。继续吗？')) return;
+        discardUnsavedChanges();
         try {
             await queueWrite(() => postJSON('/api/bom/delete', {}));
             activeStyleNo = '';
@@ -1274,8 +1645,23 @@
             showStatus(`导出失败：${error.message}`, true);
         }
     };
-    document.getElementById('export-xlsx').addEventListener('click', () => exportCurrentTable('xlsx'));
-    document.getElementById('export-csv').addEventListener('click', () => exportCurrentTable('csv'));
+    const exportBackdrop = document.getElementById('export-backdrop');
+    document.getElementById('export-table').addEventListener('click', () => {
+        if (!activeStyleNo) {
+            showStatus('请先选择鞋款', true);
+            return;
+        }
+        exportBackdrop.hidden = false;
+        document.getElementById('export-format').focus();
+    });
+    document.getElementById('cancel-export').addEventListener('click', () => {
+        exportBackdrop.hidden = true;
+    });
+    document.getElementById('export-form').addEventListener('submit', async event => {
+        event.preventDefault();
+        exportBackdrop.hidden = true;
+        await exportCurrentTable(document.getElementById('export-format').value);
+    });
 
     async function start() {
         try {
@@ -1284,7 +1670,7 @@
             await loadStyles(prefix);
             const available = [...styleList.querySelectorAll('.style-option')];
             if (!activeStyleNo && available.length) {
-                activeStyleNo = available[0].textContent.split('  ·  ')[0];
+                activeStyleNo = available[0].dataset.styleNo;
                 history.replaceState(null, '', styleURL(activeStyleNo));
             }
             if (activeStyleNo) await loadCurrentStyle();
@@ -1297,9 +1683,20 @@
         }
     }
     window.addEventListener('popstate', () => {
+        if (hasUnsavedChanges &&
+            !confirm('当前页面有未保存的修改，离开将放弃这些修改。继续吗？')) {
+            history.pushState(null, '', styleURL(activeStyleNo));
+            return;
+        }
+        discardUnsavedChanges();
         activeStyleNo = new URL(location.href).searchParams.get('bom_id') || '';
         loadCurrentStyle().catch(error => showStatus(error.message, true));
         loadStyles().catch(error => showStatus(error.message, true));
+    });
+    window.addEventListener('beforeunload', event => {
+        if (!hasUnsavedChanges) return;
+        event.preventDefault();
+        event.returnValue = '';
     });
     start();
 })();

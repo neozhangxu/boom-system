@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -52,6 +54,9 @@ var (
 	dropSchemas = []string{"body", "head"}
 )
 
+//go:embed static/index.html static/build
+var embeddedStatic embed.FS
+
 type dbQueryer interface {
 	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -61,6 +66,7 @@ type bomSummary struct {
 	ID        string `json:"id"`
 	StyleNo   string `json:"style_no"`
 	StyleName string `json:"style_name"`
+	Brand     string `json:"brand"`
 }
 
 type styleHeader struct {
@@ -201,6 +207,57 @@ func validateCustomColumns(columns []customColumn) error {
 	}
 	if len(columns) > maxCustomColumns {
 		return fmt.Errorf("自定义列数量不能超过 %d", maxCustomColumns)
+	}
+	return nil
+}
+
+func validateComponents(components []string) error {
+	if components == nil {
+		return errors.New("组件列表不能为空值")
+	}
+	allowed := make(map[string]bool, len(categories))
+	for _, category := range categories {
+		allowed[category] = true
+	}
+	seen := make(map[string]bool, len(components))
+	for _, component := range components {
+		if !allowed[component] || seen[component] {
+			return errors.New("组件列表包含无效或重复的分类")
+		}
+		seen[component] = true
+	}
+	return nil
+}
+
+func readComponents(ctx context.Context, queryer dbQueryer, table string) ([]string, error) {
+	var raw []byte
+	if err := queryer.QueryRowContext(ctx,
+		"SELECT COALESCE(components, '[]'::jsonb) FROM "+qualifiedTable("head", table)+" LIMIT 1",
+	).Scan(&raw); err != nil {
+		return nil, fmt.Errorf("读取鞋款组件失败: %w", err)
+	}
+	var components []string
+	if err := json.Unmarshal(raw, &components); err != nil {
+		return nil, fmt.Errorf("解析鞋款组件失败: %w", err)
+	}
+	if err := validateComponents(components); err != nil {
+		return nil, fmt.Errorf("数据库组件结构无效: %w", err)
+	}
+	return components, nil
+}
+
+func writeComponents(ctx context.Context, tx *sql.Tx, table, styleNo string, components []string) error {
+	if err := validateComponents(components); err != nil {
+		return err
+	}
+	encoded, err := json.Marshal(components)
+	if err != nil {
+		return fmt.Errorf("编码鞋款组件失败: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE "+qualifiedTable("head", table)+" SET components = $1::jsonb WHERE style_no = $2",
+		string(encoded), styleNo); err != nil {
+		return fmt.Errorf("保存鞋款组件失败: %w", err)
 	}
 	return nil
 }
@@ -718,6 +775,11 @@ func main() {
 		log.Fatalf("现有 PostgreSQL 表结构不符合预期: %v", err)
 	}
 
+	staticFiles, err := fs.Sub(embeddedStatic, "static")
+	if err != nil {
+		log.Fatalf("初始化内嵌静态资源失败: %v", err)
+	}
+
 	router := gin.Default()
 	router.Use(func(c *gin.Context) {
 		c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
@@ -725,8 +787,10 @@ func main() {
 		c.Header("Expires", "0")
 		c.Next()
 	})
-	router.Static("/static", "./static")
-	router.StaticFile("/", "./static/index.html")
+	router.StaticFS("/static", http.FS(staticFiles))
+	router.GET("/", func(c *gin.Context) {
+		c.FileFromFS("index.html", http.FS(staticFiles))
+	})
 
 	router.GET("/api/bom/list", func(c *gin.Context) {
 		rows, err := db.QueryContext(c.Request.Context(), `
@@ -765,8 +829,9 @@ func main() {
 		for _, table := range tables {
 			var item bomSummary
 			err := db.QueryRowContext(c.Request.Context(),
-				"SELECT style_no, COALESCE(style_name, '') FROM "+qualifiedTable("head", table)+" LIMIT 1",
-			).Scan(&item.StyleNo, &item.StyleName)
+				"SELECT style_no, COALESCE(style_name, ''), COALESCE(brand, '') FROM "+
+					qualifiedTable("head", table)+" LIMIT 1",
+			).Scan(&item.StyleNo, &item.StyleName, &item.Brand)
 			if err == sql.ErrNoRows {
 				continue
 			}
@@ -840,8 +905,14 @@ func main() {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "读取 BOM 隐藏列失败: " + err.Error()})
 			return
 		}
+		components, err := readComponents(c.Request.Context(), tx, table)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "读取鞋款组件失败: " + err.Error()})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"categories":     categories,
+			"components":     components,
 			"columns":        colorwayLabels(),
 			"custom_columns": customColumns,
 			"hidden_columns": hiddenColumns,
@@ -866,6 +937,11 @@ func main() {
 		if request.Header.StyleName == "" {
 			request.Header.StyleName = request.Header.StyleNo
 		}
+		defaultComponents, err := json.Marshal(categories)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "编码默认组件列表失败: " + err.Error()})
+			return
+		}
 		err = withSerializableTransaction(c.Request.Context(), db, func(tx *sql.Tx) error {
 			for _, schema := range schemas {
 				exists, err := relationExists(c.Request.Context(), tx, schema, table)
@@ -883,10 +959,10 @@ func main() {
 				INSERT INTO `+qualifiedTable("head", table)+` (
 					style_no, company_title, order_title, style_name, sample_order_no, sample_type,
 					customer, season, brand, gender, last_no, shoe_type, bottom_no, shoe_filler_no,
-					pattern_master, tooling_master, create_date, print_date, request_finish_date
+					pattern_master, tooling_master, create_date, print_date, request_finish_date, components
 				) VALUES (
 					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-					NULLIF($17, '')::date, NULLIF($18, '')::date, NULLIF($19, '')::date
+					NULLIF($17, '')::date, NULLIF($18, '')::date, NULLIF($19, '')::date, $20::jsonb
 				)
 			`,
 				request.Header.StyleNo, request.Header.CompanyTitle, request.Header.OrderTitle,
@@ -895,6 +971,7 @@ func main() {
 				request.Header.LastNo, request.Header.ShoeType, request.Header.BottomNo,
 				request.Header.ShoeFillerNo, request.Header.PatternMaster, request.Header.ToolingMaster,
 				request.Header.CreateDate, request.Header.PrintDate, request.Header.RequestFinishDate,
+				string(defaultComponents),
 			)
 			if err != nil {
 				return fmt.Errorf("新增 Style No. 主记录失败: %w", err)
@@ -1631,8 +1708,11 @@ func main() {
 	router.POST("/api/bom/import", func(c *gin.Context) {
 		styleNo := requestedStyle(c)
 		var request struct {
-			Header styleHeader    `json:"header"`
-			Rows   []importedItem `json:"rows"`
+			Header        styleHeader    `json:"header"`
+			Rows          []importedItem `json:"rows"`
+			CustomColumns []customColumn `json:"custom_columns"`
+			HiddenColumns []string       `json:"hidden_columns"`
+			Components    []string       `json:"components"`
 		}
 		if err := c.ShouldBindJSON(&request); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1642,9 +1722,15 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "导入行数超过上限"})
 			return
 		}
-		if request.Header.StyleNo != "" && !strings.EqualFold(strings.TrimSpace(request.Header.StyleNo), styleNo) {
-			c.JSON(http.StatusConflict, gin.H{"error": "导入文件的 Style No. 与当前鞋款不一致"})
-			return
+		request.Header.StyleNo = strings.TrimSpace(request.Header.StyleNo)
+		targetTable := ""
+		if request.Header.StyleNo != "" {
+			var err error
+			targetTable, err = tableForStyle(request.Header.StyleNo)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 		}
 		for index := range request.Rows {
 			if !validateCategory(request.Rows[index].Category) {
@@ -1660,28 +1746,130 @@ func main() {
 				}
 			}
 		}
-		table, err := requireStyleTable(c.Request.Context(), db, styleNo)
+		if request.CustomColumns != nil {
+			if err := validateCustomColumns(request.CustomColumns); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+		}
+		if request.HiddenColumns != nil {
+			seen := make(map[string]bool, len(request.HiddenColumns))
+			for _, column := range request.HiddenColumns {
+				if !builtInColumnPattern.MatchString(column) || seen[column] {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "隐藏列结构无效"})
+					return
+				}
+				seen[column] = true
+			}
+		}
+		if request.Components != nil {
+			if err := validateComponents(request.Components); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
+			activeComponents := make(map[string]bool, len(request.Components))
+			for _, component := range request.Components {
+				activeComponents[component] = true
+			}
+			for _, row := range request.Rows {
+				if !activeComponents[row.Category] {
+					c.JSON(http.StatusBadRequest, gin.H{"error": "物料行所属分类未启用"})
+					return
+				}
+			}
+		}
+		_, err := requireStyleTable(c.Request.Context(), db, styleNo)
 		if err != nil {
 			writeStyleError(c, err)
 			return
 		}
 		err = withSerializableTransaction(c.Request.Context(), db, func(tx *sql.Tx) error {
-			if _, err := requireStyleTable(c.Request.Context(), tx, styleNo); err != nil {
-				return err
-			}
-			customColumns, err := readCustomColumns(c.Request.Context(), tx, table)
+			oldTable, err := requireStyleTable(c.Request.Context(), tx, styleNo)
 			if err != nil {
 				return err
+			}
+			activeTable := oldTable
+			targetStyleNo := request.Header.StyleNo
+			if targetStyleNo == "" {
+				targetStyleNo = styleNo
+			}
+			if targetTable != "" && targetTable != oldTable {
+				for _, schema := range schemas {
+					exists, err := relationExists(c.Request.Context(), tx, schema, targetTable)
+					if err != nil {
+						return err
+					}
+					if exists {
+						return fmt.Errorf("目标 Style No. 已有 %s 数据表", schema)
+					}
+				}
+				if err := renameStyleRelations(c.Request.Context(), tx, oldTable, targetTable); err != nil {
+					return err
+				}
+				activeTable = targetTable
+			}
+			if _, err := tx.ExecContext(c.Request.Context(),
+				"UPDATE "+qualifiedTable("head", activeTable)+" SET style_no = $1 WHERE style_no = $2",
+				targetStyleNo, styleNo); err != nil {
+				return fmt.Errorf("更新 Style No. 失败: %w", err)
+			}
+			customColumns := request.CustomColumns
+			if customColumns == nil {
+				customColumns, err = readCustomColumns(c.Request.Context(), tx, activeTable)
+			}
+			if err != nil {
+				return err
+			}
+			hiddenColumns := request.HiddenColumns
+			if hiddenColumns == nil {
+				hiddenColumns, err = readHiddenColumns(c.Request.Context(), tx, activeTable)
+				if err != nil {
+					return err
+				}
+			}
+			components := request.Components
+			if components == nil {
+				components, err = readComponents(c.Request.Context(), tx, activeTable)
+				if err != nil {
+					return err
+				}
+			}
+			if err := validateComponents(components); err != nil {
+				return err
+			}
+			activeComponents := make(map[string]bool, len(components))
+			for _, component := range components {
+				activeComponents[component] = true
+			}
+			for index, row := range request.Rows {
+				if !activeComponents[row.Category] {
+					return fmt.Errorf("导入第 %d 行所属分类未启用", index+1)
+				}
+			}
+			maxPosition := 7 + 2*colorwayCount - len(hiddenColumns) + len(customColumns)
+			for _, column := range customColumns {
+				if column.Position > maxPosition {
+					return errors.New("自定义列位置无效")
+				}
 			}
 			allowedCustomColumns := make(map[string]bool, len(customColumns))
 			for _, column := range customColumns {
 				allowedCustomColumns[column.ID] = true
 			}
-			if err := updateHeaderInTx(c.Request.Context(), tx, table, styleNo, request.Header); err != nil {
+			if err := writeCustomColumns(c.Request.Context(), tx, activeTable, targetStyleNo, customColumns); err != nil {
+				return err
+			}
+			if err := writeHiddenColumns(c.Request.Context(), tx, activeTable, targetStyleNo, hiddenColumns); err != nil {
+				return err
+			}
+			if err := writeComponents(c.Request.Context(), tx, activeTable, targetStyleNo, components); err != nil {
+				return err
+			}
+			if err := updateHeaderInTx(c.Request.Context(), tx, activeTable, targetStyleNo, request.Header); err != nil {
 				return err
 			}
 			if _, err := tx.ExecContext(c.Request.Context(),
-				"DELETE FROM "+materialTable(table)); err != nil {
+				"DELETE FROM "+materialTable(activeTable)); err != nil {
 				return fmt.Errorf("替换 BOM 物料失败: %w", err)
 			}
 			itemIDs := make([]int, len(request.Rows))
@@ -1727,7 +1915,7 @@ func main() {
 				order := nextOrders[key]
 				nextOrders[key] = order + 1
 				err = tx.QueryRowContext(c.Request.Context(), `
-					INSERT INTO `+materialTable(table)+` (
+					INSERT INTO `+materialTable(activeTable)+` (
 						module_name, no, parent_id, sort_order, parts, material_description,
 						unit, remark, supplier, color_codes, color, process, custom_fields
 					) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb)
@@ -1737,19 +1925,6 @@ func main() {
 					string(customFieldsRaw)).Scan(&itemIDs[index])
 				if err != nil {
 					return fmt.Errorf("导入 %s 物料行失败: %w", item.Category, err)
-				}
-			}
-			for _, category := range categories {
-				tableName := materialTable(table)
-				if _, err := tx.ExecContext(c.Request.Context(), `
-					WITH ordered AS (
-						SELECT id, row_number() OVER (PARTITION BY parent_id ORDER BY sort_order, id)::integer - 1 AS next_order
-						FROM `+tableName+` WHERE module_name = $1
-					)
-					UPDATE `+tableName+` AS item SET sort_order = ordered.next_order
-					FROM ordered WHERE item.id = ordered.id AND item.module_name = $1
-				`, category); err != nil {
-					return fmt.Errorf("重排导入的 %s 物料失败: %w", category, err)
 				}
 			}
 			return nil
@@ -1838,7 +2013,7 @@ func verifyExistingSchema(ctx context.Context, db *sql.DB) error {
 		"id", "company_title", "order_title", "style_no", "style_name", "sample_order_no",
 		"sample_type", "customer", "season", "brand", "gender", "last_no", "shoe_type",
 		"bottom_no", "shoe_filler_no", "pattern_master", "tooling_master", "create_date",
-		"print_date", "request_finish_date", "custom_columns", "hidden_columns",
+		"print_date", "request_finish_date", "custom_columns", "hidden_columns", "components",
 	}
 	for _, table := range styleTables {
 		if !tableNamePattern.MatchString(table) {
@@ -1868,9 +2043,11 @@ func verifyExistingSchema(ctx context.Context, db *sql.DB) error {
 					return fmt.Errorf("检查 %s.%s.%s 失败: %w", required.schema, table, column, err)
 				}
 				if !exists {
-					migration := "migrations/003_head_body_tree.sql"
+					migration := "datebases_back/003_head_body_tree.sql"
 					if column == "parent_id" {
-						migration = "migrations/004_body_parent_id.sql"
+						migration = "datebases_back/004_body_parent_id.sql"
+					} else if column == "components" {
+						migration = "datebases_back/005_head_components.sql"
 					}
 					return fmt.Errorf("缺少 %s.%s.%s；请先手动执行 %s",
 						required.schema, table, column, migration)
@@ -1890,7 +2067,7 @@ func verifyExistingSchema(ctx context.Context, db *sql.DB) error {
 			return fmt.Errorf("检查 body.%s 父子关系外键失败: %w", table, err)
 		}
 		if !parentConstraintExists {
-			return fmt.Errorf("缺少 body.%s.fk_bom_parent；请先手动执行 migrations/004_body_parent_id.sql", table)
+			return fmt.Errorf("缺少 body.%s.fk_bom_parent；请先手动执行 datebases_back/004_body_parent_id.sql", table)
 		}
 	}
 	return nil
@@ -2034,7 +2211,7 @@ func updateHeaderInTx(ctx context.Context, tx *sql.Tx, table, styleNo string, he
 	_, err := tx.ExecContext(ctx, `
 		UPDATE `+qualifiedTable("head", table)+` SET
 			company_title = $1, order_title = $2,
-			style_name = COALESCE(NULLIF($3, ''), style_name),
+			style_name = $3,
 			sample_order_no = $4, sample_type = $5, customer = $6, season = $7,
 			brand = $8, gender = $9, last_no = $10, shoe_type = $11, bottom_no = $12,
 			shoe_filler_no = $13, pattern_master = $14, tooling_master = $15,

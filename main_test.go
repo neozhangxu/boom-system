@@ -45,3 +45,24 @@ func TestSetStringArrayValue(t *testing.T) {
 		t.Fatal("setStringArrayValue() expected an error for an invalid index")
 	}
 }
+
+func TestValidateComponents(t *testing.T) {
+	tests := []struct {
+		name       string
+		components []string
+		wantErr    bool
+	}{
+		{name: "empty", components: []string{}},
+		{name: "supported categories", components: []string{"upper", "lining"}},
+		{name: "null list", components: nil, wantErr: true},
+		{name: "unknown category", components: []string{"unknown"}, wantErr: true},
+		{name: "duplicate category", components: []string{"upper", "upper"}, wantErr: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := validateComponents(test.components); (err != nil) != test.wantErr {
+				t.Fatalf("validateComponents() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
+	}
+}
