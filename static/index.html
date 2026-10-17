@@ -19,7 +19,8 @@
         .search input { min-width: 0; flex: 1; }
         input, select { padding: 7px 8px; border: 1px solid #cbd5e1; border-radius: 4px; background: white; }
         #style-list { min-height: 120px; overflow: auto; padding: 4px 8px 10px; }
-        .style-option { display: block; width: 100%; margin: 2px 0; padding: 9px; border: 0; border-radius: 4px; background: transparent; text-align: left; overflow-wrap: anywhere; }
+        .style-option { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; margin: 2px 0; padding: 9px; border: 0; border-radius: 4px; background: transparent; text-align: left; }
+        .style-option-brand { margin-left: auto; text-align: right; overflow-wrap: anywhere; }
         .style-option:hover { background: #f1f5f9; }
         .style-option.active { background: #dbeafe; color: #1d4ed8; font-weight: 700; }
         .sidebar-note { padding: 8px 12px; color: #64748b; font-size: 12px; }
@@ -43,11 +44,7 @@
         .row-context-menu button:hover:not(:disabled) { background: #eff6ff; }
         .row-context-menu button:disabled { color: #94a3b8; cursor: not-allowed; }
         .row-context-menu .menu-danger { color: #b91c1c; }
-        .component-context-menu { position: fixed; z-index: 32; min-width: 150px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; box-shadow: 0 8px 24px #0f172a26; }
-        .component-context-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 3px; background: white; color: #1f2937; text-align: left; }
-        .component-context-menu button:hover:not(:disabled) { background: #eff6ff; }
-        .component-context-menu button:disabled { color: #94a3b8; cursor: not-allowed; }
-        .component-context-menu .menu-danger { color: #b91c1c; }
+        .menu-separator { height: 1px; margin: 4px 2px; background: #e2e8f0; }
         .column-context-menu { position: fixed; z-index: 31; min-width: 140px; padding: 4px; border: 1px solid #cbd5e1; border-radius: 6px; background: white; box-shadow: 0 8px 24px #0f172a26; }
         .column-context-menu button { display: block; width: 100%; padding: 8px 12px; border: 0; border-radius: 3px; background: white; color: #1f2937; text-align: left; }
         .column-context-menu button:hover:not(:disabled) { background: #eff6ff; }
@@ -154,13 +151,13 @@
 <div id="row-context-menu" class="row-context-menu" role="menu" hidden>
     <button type="button" role="menuitem" data-action="add-row">添加行</button>
     <button type="button" role="menuitem" data-action="add-node">添加节点行</button>
+    <div class="menu-separator" role="separator"></div>
+    <button type="button" role="menuitem" data-action="add-component">添加组件</button>
+    <button type="button" role="menuitem" data-action="delete-component" class="menu-danger">删除组件</button>
+    <div class="menu-separator" role="separator"></div>
     <button type="button" role="menuitem" data-action="copy">复制</button>
     <button type="button" role="menuitem" data-action="paste">粘贴</button>
     <button type="button" role="menuitem" data-action="delete" class="menu-danger">删除</button>
-</div>
-<div id="component-context-menu" class="component-context-menu" role="menu" hidden>
-    <button type="button" role="menuitem" data-action="add-component">添加组件</button>
-    <button type="button" role="menuitem" data-action="delete-component" class="menu-danger">删除组件</button>
 </div>
 <div id="column-context-menu" class="column-context-menu" role="menu" hidden>
     <button type="button" role="menuitem" data-action="add">添加列</button>
@@ -467,12 +464,11 @@
     ];
     const exportHeaders = () => exportColumns().map(column =>
         column.field === 'category_label' ? 'Category' : column.title
-    ).concat('Parent Row');
+    );
     async function exportTableFile(options) {
         try {
             const headers = exportHeaders();
             const rows = flatMaterialRows(options.data);
-            const rowNumbers = new Map(rows.map((row, index) => [row.item_id, index + 1]));
             let previousCategory = '';
             const data = rows.map(row => [
                 ...exportColumns().map(column => {
@@ -484,8 +480,7 @@
                     return column.field === 'color_codes'
                         ? colorCodesText(row.source_color_codes)
                         : row[column.field] ?? '';
-                }),
-                row.parent_id ? rowNumbers.get(row.parent_id) || '' : ''
+                })
             ]);
             const filename = options.filename || activeStyleNo || 'BOM';
             if (options.type === 'csv') {
@@ -550,6 +545,7 @@
     };
     async function readImportRows(file) {
         const headers = exportHeaders();
+        const legacyHeaders = [...headers, 'Parent Row'];
         let records;
         if (/\.csv$/i.test(file.name)) {
             records = parseCSV(await file.text());
@@ -560,23 +556,31 @@
             if (!sheet) throw new Error('工作簿中没有 BOM 数据');
             records = [];
             sheet.eachRow(row => records.push(Array.from(
-                { length: headers.length },
+                { length: row.cellCount },
                 (_, index) => row.getCell(index + 1).text
             )));
         }
-        records = records.map(record => Array.from(
-            { length: headers.length },
-            (_, index) => String(record[index] ?? '')
-        ));
-        if (!records.length || records[0].length !== headers.length ||
-            records[0].some((header, index) => header.trim() !== headers[index])) {
+        if (!records.length) {
             throw new Error('文件列结构不匹配，请使用表格工具栏导出的模板');
         }
+        const fileHeaders = records[0].map(header => String(header ?? '').trim());
+        const hasParentColumn = fileHeaders.length === legacyHeaders.length &&
+            fileHeaders.every((header, index) => header === legacyHeaders[index]);
+        const validHeaders = fileHeaders.length === headers.length &&
+            fileHeaders.every((header, index) => header === headers[index]);
+        if (!hasParentColumn && !validHeaders) {
+            throw new Error('文件列结构不匹配，请使用表格工具栏导出的模板');
+        }
+        const columnCount = hasParentColumn ? legacyHeaders.length : headers.length;
+        records = records.map(record => Array.from(
+            { length: columnCount },
+            (_, index) => String(record[index] ?? '')
+        ));
         let previousCategory = '';
         return records.slice(1).filter(record => record.some(value => value !== '')).map(record => {
             const category = record[0].trim() || previousCategory;
             if (category) previousCategory = category;
-            const parentRowValue = record[headers.length - 1].trim();
+            const parentRowValue = hasParentColumn ? record[headers.length].trim() : '';
             const item = {
                 category,
                 parent_row: parentRowValue ? Number(parentRowValue) : null,
@@ -708,7 +712,7 @@
                     isArrow: true, isEnter: true, isTab: true, isEdit: true, isEsc: true,
                     isAll: true, isDel: true, isBack: true, isClip: true, isFNR: true, isUndoRedo: true
                 },
-                treeConfig: { childrenField: 'children', expandAll: true, trigger: 'row', showLine: true },
+                treeConfig: { childrenField: 'children', expandAll: true, trigger: 'manual', showLine: true },
                 rowConfig: { keyField: 'row_key', isCurrent: true, isHover: true },
                 columnConfig: { resizable: true },
                 customConfig: { enabled: true, storage: true, allowFixed: true },
@@ -852,60 +856,20 @@
 
     const rowContextMenu = document.getElementById('row-context-menu');
     const columnContextMenu = document.getElementById('column-context-menu');
-    const componentContextMenu = document.getElementById('component-context-menu');
     const lastCategory = () => activeComponents.at(-1) || '';
+    const currentCategory = () =>
+        activeComponents.includes(contextCategory) ? contextCategory : lastCategory();
     let contextRow = null;
     let contextCategory = 'upper';
     let clipboardRows = null;
     let contextColumn = null;
     let clipboardColumn = null;
-    let contextComponent = null;
     const componentLabel = category => categoryNames.find(([value]) => value === category)?.[1] || category;
-    const isComponentRow = row =>
-        row?.isCategory === true &&
-        row.isColorCodesSummary !== true &&
-        categoryNames.some(([category]) => category === row.category);
     const isMaterialRow = row =>
         typeof row?.row_key === 'string' &&
         (row.row_key.startsWith('item-') || row.row_key.startsWith('draft-'));
     const findMaterialRowByKey = rowKey =>
         flatMaterialRows(gridState.rows).find(item => item.row_key === rowKey) || null;
-    const hideComponentContextMenu = () => {
-        componentContextMenu.hidden = true;
-        contextComponent = null;
-    };
-    const showComponentContextMenu = (category, event, adjacentMenu = null) => {
-        contextComponent = activeComponents.includes(category) ? category : null;
-        const addButton = componentContextMenu.querySelector('[data-action="add-component"]');
-        const deleteButton = componentContextMenu.querySelector('[data-action="delete-component"]');
-        addButton.disabled = !categoryNames.some(([candidate]) => !activeComponents.includes(candidate));
-        deleteButton.disabled = !contextComponent;
-        componentContextMenu.hidden = false;
-        const menuWidth = componentContextMenu.offsetWidth;
-        const menuHeight = componentContextMenu.offsetHeight;
-        const adjacentRect = adjacentMenu?.getBoundingClientRect();
-        let left = Math.max(4, Math.min(event.clientX, innerWidth - menuWidth - 4));
-        let top = Math.max(4, Math.min(event.clientY, innerHeight - menuHeight - 4));
-        if (adjacentRect) {
-            const rightSpace = innerWidth - adjacentRect.right - 8;
-            const leftSpace = adjacentRect.left - 8;
-            if (rightSpace >= menuWidth) {
-                left = adjacentRect.right + 4;
-                top = Math.max(4, Math.min(adjacentRect.top, innerHeight - menuHeight - 4));
-            } else if (leftSpace >= menuWidth) {
-                left = adjacentRect.left - menuWidth - 4;
-                top = Math.max(4, Math.min(adjacentRect.top, innerHeight - menuHeight - 4));
-            } else {
-                const combinedHeight = adjacentRect.height + menuHeight + 4;
-                top = Math.max(4, Math.min(adjacentRect.top, innerHeight - combinedHeight - 4));
-                adjacentMenu.style.top = `${top}px`;
-                left = Math.max(4, Math.min(adjacentRect.left, innerWidth - menuWidth - 4));
-                top += adjacentRect.height + 4;
-            }
-        }
-        componentContextMenu.style.left = `${left}px`;
-        componentContextMenu.style.top = `${top}px`;
-    };
     const refreshComponentOptions = () => {
         const select = document.getElementById('component-select');
         const available = categoryNames.filter(([category]) => !activeComponents.includes(category));
@@ -936,7 +900,12 @@
         markUnsavedChanges(`已添加组件「${componentLabel(category)}」，点击“确认保存”后写入数据库`);
     };
     const deleteComponent = category => {
-        const rowIndex = gridState.rows.findIndex(row => row.isCategory && row.category === category);
+        if (!activeComponents.includes(category)) return;
+        const rowIndex = gridState.rows.findIndex(row =>
+            row.isCategory &&
+            !row.isColorCodesSummary &&
+            row.category === category
+        );
         if (rowIndex < 0) throw new Error('找不到要删除的组件');
         const row = gridState.rows[rowIndex];
         const itemCount = flatMaterialRows(row.children || []).length;
@@ -955,19 +924,6 @@
         }
         markUnsavedChanges(`已删除组件「${componentLabel(category)}」及其物料，点击“确认保存”后同步数据库`);
     };
-    componentContextMenu.addEventListener('click', event => {
-        const action = event.target.closest('[data-action]')?.dataset.action;
-        if (!action) return;
-        const category = contextComponent;
-        hideComponentContextMenu();
-        if (action === 'add-component') {
-            refreshComponentOptions();
-            document.getElementById('component-backdrop').hidden = false;
-            document.getElementById('component-select').focus();
-        } else if (action === 'delete-component' && category) {
-            deleteComponent(category);
-        }
-    });
     document.getElementById('cancel-component').addEventListener('click', () => {
         document.getElementById('component-backdrop').hidden = true;
     });
@@ -984,9 +940,13 @@
     const showRowContextMenu = (row, event) => {
         contextRow = row || null;
         const isItem = isMaterialRow(row);
-        const targetCategory = row?.category || lastCategory();
+        const targetCategory = row?.category || currentCategory();
         const categoryEnabled = !!targetCategory && activeComponents.includes(targetCategory);
         if (row?.category) contextCategory = row.category;
+        rowContextMenu.querySelector('[data-action="add-component"]').disabled =
+            !activeStyleNo || !categoryNames.some(([candidate]) => !activeComponents.includes(candidate));
+        rowContextMenu.querySelector('[data-action="delete-component"]').disabled =
+            !activeComponents.includes(targetCategory);
         rowContextMenu.querySelector('[data-action="add-node"]').disabled =
             row?.isColorCodesSummary === true || !categoryEnabled;
         rowContextMenu.querySelector('[data-action="add-row"]').disabled = !categoryEnabled;
@@ -1000,11 +960,20 @@
         rowContextMenu.style.top = `${Math.max(4, Math.min(event.clientY, innerHeight - menuHeight - 4))}px`;
     };
     document.getElementById('bom-table').addEventListener('click', event => {
+        if (event.target.closest('.vxe-cell--tree-btn')) {
+            const tableRow = event.target.closest('tr[rowid]');
+            const rowNode = tableRow && gridTable?.getRowNode(tableRow);
+            if (rowNode?.item) {
+                event.preventDefault();
+                event.stopPropagation();
+                gridTable.toggleTreeExpand(rowNode.item);
+            }
+            return;
+        }
         const tableRow = event.target.closest('tr[rowid]');
         const rowNode = tableRow && gridTable?.getRowNode(tableRow);
         if (!rowNode?.item?.category) return;
         if (!rowNode.item.isColorCodesSummary) contextCategory = rowNode.item.category;
-        hideComponentContextMenu();
     });
     document.getElementById('bom-table').addEventListener('contextmenu', event => {
         const bodyArea = event.target.closest('.vxe-table--body-wrapper, .vxe-table--empty-place-wrapper');
@@ -1017,12 +986,6 @@
         const rowKey = tableRow?.getAttribute('rowid');
         const row = rowNode?.item || findMaterialRowByKey(rowKey) ||
             gridState.rows.find(item => item.row_key === rowKey) || null;
-        if (isComponentRow(row)) {
-            showRowContextMenu(row, event);
-            showComponentContextMenu(row.category, event, rowContextMenu);
-            return;
-        }
-        hideComponentContextMenu();
         showRowContextMenu(row, event);
     });
     const hideColumnContextMenu = () => {
@@ -1060,20 +1023,16 @@
     document.addEventListener('click', event => {
         if (!rowContextMenu.contains(event.target)) hideRowContextMenu();
         if (!columnContextMenu.contains(event.target)) hideColumnContextMenu();
-        if (!componentContextMenu.contains(event.target) &&
-            !event.target.closest('#bom-table tr[rowid]')) hideComponentContextMenu();
     });
     document.addEventListener('keydown', event => {
         if (event.key === 'Escape') {
             hideRowContextMenu();
             hideColumnContextMenu();
-            hideComponentContextMenu();
         }
     });
     window.addEventListener('scroll', () => {
         hideRowContextMenu();
         hideColumnContextMenu();
-        hideComponentContextMenu();
     }, true);
 
     async function saveCustomColumn(column, paste = false) {
@@ -1235,7 +1194,7 @@
         siblings.splice(targetIndex < 0 ? siblings.length : targetIndex, 0, ...roots);
     }
     async function addMaterialRow(row) {
-        const category = row?.category || lastCategory();
+        const category = row?.category || currentCategory();
         const parentID = row?.item_id ? row.parent_id ?? null : null;
         let beforeItemID = null;
         if (row?.item_id) {
@@ -1259,7 +1218,7 @@
         markUnsavedChanges('已新增物料行，点击“确认保存”后写入数据库');
     }
     async function addNodeRow(row) {
-        const category = row?.category || contextCategory;
+        const category = row?.category || currentCategory();
         const parentID = row?.item_id ?? null;
         const beforeItemID = row?.item_id
             ? row.children?.[0]?.item_id ?? null
@@ -1283,7 +1242,7 @@
     }
     async function pasteRows(row) {
         if (!clipboardRows?.length) return;
-        const category = row?.category || lastCategory();
+        const category = row?.category || currentCategory();
         const parentID = row?.item_id ? row.parent_id ?? null : null;
         let beforeItemID = null;
         if (row?.item_id) {
@@ -1316,6 +1275,19 @@
     rowContextMenu.addEventListener('click', event => {
         const action = event.target.closest('[data-action]')?.dataset.action;
         if (!action) return;
+        if (action === 'add-component') {
+            hideRowContextMenu();
+            refreshComponentOptions();
+            document.getElementById('component-backdrop').hidden = false;
+            document.getElementById('component-select').focus();
+            return;
+        }
+        if (action === 'delete-component') {
+            const category = contextRow?.category || currentCategory();
+            hideRowContextMenu();
+            if (activeComponents.includes(category)) deleteComponent(category);
+            return;
+        }
         if (action === 'copy' && isMaterialRow(contextRow)) {
             clipboardRows = snapshotMaterialTree(contextRow);
             rowContextMenu.querySelector('[data-action="paste"]').disabled = false;
@@ -1344,7 +1316,12 @@
             button.className = `style-option${item.style_no === activeStyleNo ? ' active' : ''}`;
             button.type = 'button';
             button.dataset.styleNo = item.style_no;
-            button.textContent = `${item.style_no}${item.brand ? `  +  ${item.brand}` : ''}`;
+            const styleNo = document.createElement('span');
+            styleNo.textContent = item.style_no;
+            const brand = document.createElement('span');
+            brand.className = 'style-option-brand';
+            brand.textContent = item.brand || '';
+            button.replaceChildren(styleNo, brand);
             button.addEventListener('click', () => {
                 if (hasUnsavedChanges &&
                     !confirm('当前页面有未保存的修改，切换鞋款将放弃这些修改。继续吗？')) return;

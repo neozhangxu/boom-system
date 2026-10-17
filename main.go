@@ -779,6 +779,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("初始化内嵌静态资源失败: %v", err)
 	}
+	indexHTML, err := fs.ReadFile(staticFiles, "index.html")
+	if err != nil {
+		log.Fatalf("读取内嵌首页失败: %v", err)
+	}
 
 	router := gin.Default()
 	router.Use(func(c *gin.Context) {
@@ -789,7 +793,7 @@ func main() {
 	})
 	router.StaticFS("/static", http.FS(staticFiles))
 	router.GET("/", func(c *gin.Context) {
-		c.FileFromFS("index.html", http.FS(staticFiles))
+		c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 	})
 
 	router.GET("/api/bom/list", func(c *gin.Context) {
