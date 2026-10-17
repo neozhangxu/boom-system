@@ -2,7 +2,7 @@
 
 面向鞋业制造的 Web BOM 管理系统。前端使用 Vue 3 与 Vxe-Table，后端使用 Go/Gin，数据直接读写 PostgreSQL 的现有 `body` / `head` schema。
 
-Web 表格支持单元格/整行编辑、键盘导航、物料编号校验、分类树、排序与分类筛选、合计行、冻结表头/底部及左侧列和自定义列。组件节点按当前鞋款已启用的分类生成。右键组件行、分类空白行、物料行或表格空白区域，统一显示行操作菜单；菜单顶部可添加组件，组件行上还可删除该组件。组件仅为分类分组，不会预先写入空白物料记录。若鞋款尚无 UPPER 物料行而编辑 Color Codes，系统会在确认保存时创建一条 UPPER 根行，确保编码可保存在 `body.color_codes`。分类、No.、Parts、Material Description、Unit、Supplier、Remark 为固定列，其余列标题可双击修改；内置列标题保存在当前浏览器，自定义列标题和行数据保存在 PostgreSQL。右键可在可操作列后添加列、复制/粘贴整列、删除列（删除自定义列并清除数据；删除内置配色/工艺列会在当前鞋款隐藏该列）。物料表支持右键添加行/节点行、复制（含子行）、粘贴和级联删除；`parent_id` 层级与排序保存在 PostgreSQL。Vxe 工具栏提供本地 XLSX/CSV 导入导出与打印；网页和新导出的 XLSX/CSV 均不显示 Parent Row，父子关系及数据库行 ID 由 PostgreSQL 管理。导入仍兼容旧文件中的 Parent Row 列；不带该列的新格式文件导入时，物料行按根节点处理。导入会在前端校验后暂存，确认保存时通过事务整体替换 BOM。
+Web 表格支持单元格/整行编辑、键盘导航、物料编号校验、分类树、排序与分类筛选、合计行、冻结表头/底部及左侧列和自定义列。组件节点按当前鞋款已启用的分类生成。右键组件行、分类空白行、物料行或表格空白区域，统一显示行操作菜单；菜单顶部可添加组件，组件行上还可删除该组件。组件仅为分类分组，不会预先写入空白物料记录。若鞋款尚无 UPPER 物料行而编辑 Color Codes，系统会在确认保存时创建一条 UPPER 根行，确保编码可保存在 `body.color_codes`。分类、No.、Parts、Material Description、Unit、Supplier、Remark 为固定列，其余列标题可双击修改；内置列标题保存在当前浏览器，自定义列标题和行数据保存在 PostgreSQL。右键可在可操作列后添加列、复制/粘贴整列、删除列（删除自定义列并清除数据；删除内置配色/工艺列会在当前鞋款隐藏该列）。物料表支持右键添加行/节点行、复制（含子行）、粘贴和级联删除；`parent_id` 层级与排序保存在 PostgreSQL。工具栏提供本地 XLSX/CSV 导入导出与打印；网页和新导出的 XLSX/CSV 均不显示 Parent Row，父子关系及数据库行 ID 由 PostgreSQL 管理。Print Date 不在网页和数据库中保存，导出和打印时自动生成为当前日期；导出文件顶部包含 web 表头字段及自动生成的 Print Date，随后为 BOM 表格。导入仍兼容旧文件中的 Parent Row 列；不带该列的新格式文件导入时，物料行按根节点处理。导入会在前端校验后暂存，确认保存时通过事务整体替换 BOM。
 
 表头、物料单元格与行、自定义列设置及 Excel/CSV 导入在页面中先作为未保存草稿；点击“确认保存”后，服务在单个 PostgreSQL `SERIALIZABLE` 事务中统一写入，失败时保留页面草稿。内置列标题在确认保存时写入当前浏览器。切换鞋款或离开页面时会提示处理未保存的修改。
 
@@ -15,13 +15,15 @@ Web 表格支持单元格/整行编辑、键盘导航、物料编号校验、分
 | `head` | 鞋款表头，例如 `head.on_27q3_094w` |
 | `body` | 全部 BOM 物料，例如 `body.on_27q3_094w` |
 
-`head` 使用数据库现有鞋款字段（包括 `company_title`、`order_title`、`style_no`、`style_name`、客户、季节、品牌、鞋型、版师/模具师及日期字段）；页面表头直接编辑这些字段。旧架构中的独立签核表不属于该数据模型，因此页面不再显示或写入签核信息。
+`head` 使用数据库现有鞋款字段（包括 `company_title`、`order_title`、`style_no`、`style_name`、客户、季节、品牌、鞋型、版师/模具师及日期字段，日期字段仅保留 `create_date` 和 `request_finish_date`）；页面表头直接编辑这些字段。Print Date 不在数据库中保存，导出和打印时由前端自动生成为当前日期。旧架构中的独立签核表不属于该数据模型，因此页面不再显示或写入签核信息。
 
 `body` 保存物料编号/描述、单位、供应商、备注、`color_codes` 及 8 组 JSONB 配色/工艺值。页面不显示独立的 Color Codes 列；表格顶部的 Color Codes 行将 UPPER（鞋面）物料 `color_codes` 数组的 8 个值分别显示在“配色 1”至“配色 8”列下，左键编辑后会在事务中同步更新该 Style No. 的全部 UPPER（鞋面）物料行，不影响其他分类，并刷新表格。Excel/CSV 导入导出仍保留每行 Color Codes 数据。每张 `body.<Style No.>` 表仅属于对应鞋款，因此不含 `style_no` 列。`module_name` 分类为 UPPER、LINING、REINFORCEMENT、SOCK LINER、INSOLE、OUTSOLE、ACCESSORIES、PACKING、STITCHING 和 REM；迁移会将既有 `remark` 分类值统一为 `rem`，页面将其显示为 REM。`parent_id` 与 `module_name` 组成同表自引用外键，确保父子行属于同一分类并级联删除；`sort_order` 保存同级物料顺序，`custom_fields` JSONB 保存自定义列数据。`head` 的 `custom_columns` / `hidden_columns` JSONB 字段保存列元数据。
 
 数据库迁移脚本统一存放在 [`datebases_back/`](./datebases_back/)。对已存在数据库，先备份，再由数据库管理员手动执行迁移。如果尚未执行 003，依次执行 [`003_head_body_tree.sql`](./datebases_back/003_head_body_tree.sql) 和 [`004_body_parent_id.sql`](./datebases_back/004_body_parent_id.sql)；如果 003 已执行，只需执行 004，避免重置已有排序。004 会在每张现有 `body` 鞋款表中增加可空 `parent_id`、自引用外键及索引；已有行保持根节点，不删除物料数据。服务启动会检查 schema、表、所需字段和父子关系外键，不会自行执行迁移。创建新鞋款时，服务在单个事务中复制现有 `body` / `head` 表结构并创建同名表；删除鞋款时在单个事务中删除对应两表。
 
 组件管理还需要由数据库管理员手动执行 [`005_head_components.sql`](./datebases_back/005_head_components.sql) 和 [`006_component_availability.sql`](./datebases_back/006_component_availability.sql)。005 为每张 `head` 鞋款表增加 JSONB 组件清单；006 将既有鞋款清单初始化为当前 BOM 中实际存在的分类，并为新鞋款设置空清单。服务创建新鞋款时会明确初始化全部默认组件，因此页面立即显示所有分类节点；已有鞋款则可按需添加或删除组件。删除组件时，其分类物料会在点击“确认保存”时与其余修改一并事务替换。服务启动会检查 `head.components` 字段，不会自行执行迁移。
+
+删除 Print Date 字段需要由数据库管理员手动执行 [`007_drop_print_date.sql`](./datebases_back/007_drop_print_date.sql)。007 会遍历每张 `head` 鞋款表并删除 `print_date` 列；脚本幂等，可重复执行。执行后服务启动不再检查 `print_date` 字段。Print Date 不再保存在数据库中，导出和打印时由前端自动生成为当前日期。
 
 ## 配置
 

@@ -87,7 +87,6 @@ type styleHeader struct {
 	PatternMaster     string `json:"pattern_master"`
 	ToolingMaster     string `json:"tooling_master"`
 	CreateDate        string `json:"create_date"`
-	PrintDate         string `json:"print_date"`
 	RequestFinishDate string `json:"request_finish_date"`
 }
 
@@ -963,10 +962,10 @@ func main() {
 				INSERT INTO `+qualifiedTable("head", table)+` (
 					style_no, company_title, order_title, style_name, sample_order_no, sample_type,
 					customer, season, brand, gender, last_no, shoe_type, bottom_no, shoe_filler_no,
-					pattern_master, tooling_master, create_date, print_date, request_finish_date, components
+					pattern_master, tooling_master, create_date, request_finish_date, components
 				) VALUES (
 					$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-					NULLIF($17, '')::date, NULLIF($18, '')::date, NULLIF($19, '')::date, $20::jsonb
+					NULLIF($17, '')::date, NULLIF($18, '')::date, $19::jsonb
 				)
 			`,
 				request.Header.StyleNo, request.Header.CompanyTitle, request.Header.OrderTitle,
@@ -974,7 +973,7 @@ func main() {
 				request.Header.Customer, request.Header.Season, request.Header.Brand, request.Header.Gender,
 				request.Header.LastNo, request.Header.ShoeType, request.Header.BottomNo,
 				request.Header.ShoeFillerNo, request.Header.PatternMaster, request.Header.ToolingMaster,
-				request.Header.CreateDate, request.Header.PrintDate, request.Header.RequestFinishDate,
+				request.Header.CreateDate, request.Header.RequestFinishDate,
 				string(defaultComponents),
 			)
 			if err != nil {
@@ -1134,7 +1133,7 @@ func main() {
 			"shoe_type": "shoe_type", "bottom_no": "bottom_no",
 			"shoe_filler_no": "shoe_filler_no", "pattern_master": "pattern_master",
 			"tooling_master": "tooling_master", "create_date": "create_date",
-			"print_date": "print_date", "request_finish_date": "request_finish_date",
+			"request_finish_date": "request_finish_date",
 		}
 		if request.Field != "style_no" && headerColumns[request.Field] == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "不支持修改的表头字段"})
@@ -1177,7 +1176,7 @@ func main() {
 			}
 			if column := headerColumns[request.Field]; column != "" {
 				var result sql.Result
-				if column == "create_date" || column == "print_date" || column == "request_finish_date" {
+				if column == "create_date" || column == "request_finish_date" {
 					result, err = tx.ExecContext(c.Request.Context(),
 						"UPDATE "+qualifiedTable("head", oldTable)+" SET "+quoteIdentifier(column)+
 							" = NULLIF($1, '')::date WHERE style_no = $2",
@@ -2017,7 +2016,7 @@ func verifyExistingSchema(ctx context.Context, db *sql.DB) error {
 		"id", "company_title", "order_title", "style_no", "style_name", "sample_order_no",
 		"sample_type", "customer", "season", "brand", "gender", "last_no", "shoe_type",
 		"bottom_no", "shoe_filler_no", "pattern_master", "tooling_master", "create_date",
-		"print_date", "request_finish_date", "custom_columns", "hidden_columns", "components",
+		"request_finish_date", "custom_columns", "hidden_columns", "components",
 	}
 	for _, table := range styleTables {
 		if !tableNamePattern.MatchString(table) {
@@ -2129,14 +2128,14 @@ func readHeader(ctx context.Context, tx *sql.Tx, table string) (styleHeader, err
 			COALESCE(gender, ''), COALESCE(last_no, ''), COALESCE(shoe_type, ''),
 			COALESCE(bottom_no, ''), COALESCE(shoe_filler_no, ''),
 			COALESCE(pattern_master, ''), COALESCE(tooling_master, ''),
-			COALESCE(create_date::text, ''), COALESCE(print_date::text, ''),
+			COALESCE(create_date::text, ''),
 			COALESCE(request_finish_date::text, '')
 		FROM `+qualifiedTable("head", table)+` LIMIT 1
 	`).Scan(&header.StyleNo, &header.CompanyTitle, &header.OrderTitle, &header.StyleName,
 		&header.SampleOrderNo, &header.SampleType, &header.Customer, &header.Season,
 		&header.Brand, &header.Gender, &header.LastNo, &header.ShoeType, &header.BottomNo,
 		&header.ShoeFillerNo, &header.PatternMaster, &header.ToolingMaster, &header.CreateDate,
-		&header.PrintDate, &header.RequestFinishDate)
+		&header.RequestFinishDate)
 	return header, err
 }
 
@@ -2219,13 +2218,13 @@ func updateHeaderInTx(ctx context.Context, tx *sql.Tx, table, styleNo string, he
 			sample_order_no = $4, sample_type = $5, customer = $6, season = $7,
 			brand = $8, gender = $9, last_no = $10, shoe_type = $11, bottom_no = $12,
 			shoe_filler_no = $13, pattern_master = $14, tooling_master = $15,
-			create_date = NULLIF($16, '')::date, print_date = NULLIF($17, '')::date,
-			request_finish_date = NULLIF($18, '')::date
-		WHERE style_no = $19
+			create_date = NULLIF($16, '')::date,
+			request_finish_date = NULLIF($17, '')::date
+		WHERE style_no = $18
 	`, header.CompanyTitle, header.OrderTitle, header.StyleName, header.SampleOrderNo,
 		header.SampleType, header.Customer, header.Season, header.Brand, header.Gender,
 		header.LastNo, header.ShoeType, header.BottomNo, header.ShoeFillerNo,
-		header.PatternMaster, header.ToolingMaster, header.CreateDate, header.PrintDate,
+		header.PatternMaster, header.ToolingMaster, header.CreateDate,
 		header.RequestFinishDate, styleNo)
 	if err != nil {
 		return fmt.Errorf("更新鞋款表头失败: %w", err)

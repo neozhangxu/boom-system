@@ -95,6 +95,7 @@
                 <button class="button" id="confirm-save" type="button" disabled>确认保存</button>
                 <button class="button secondary" id="import-table" type="button">导入 Excel/CSV</button>
                 <button class="button secondary" id="export-table" type="button">导出 Excel/CSV</button>
+                <button class="button secondary" id="print-table" type="button">打印</button>
                 <label>编辑模式
                     <select id="edit-mode">
                         <option value="cell">单元格编辑</option>
@@ -212,7 +213,6 @@
         ['pattern_master', 'Pattern Master'],
         ['tooling_master', 'Tooling Master'],
         ['create_date', 'Create Date'],
-        ['print_date', 'Print Date'],
         ['request_finish_date', 'Request Finish Date']
     ];
     const colorColumnCount = 8;
@@ -313,7 +313,7 @@
         input.name = field;
         input.dataset.field = field;
         input.value = value ?? '';
-        if (['create_date', 'print_date', 'request_finish_date'].includes(field)) input.type = 'date';
+        if (['create_date', 'request_finish_date'].includes(field)) input.type = 'date';
         if (field === 'style_no') input.maxLength = 63;
         wrapper.appendChild(input);
         container.appendChild(wrapper);
@@ -465,6 +465,36 @@
     const exportHeaders = () => exportColumns().map(column =>
         column.field === 'category_label' ? 'Category' : column.title
     );
+    const formatToday = () => {
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+    const exportHeaderRows = () => {
+        const rows = [];
+        headerDefinitions.forEach(([field, label]) => {
+            const input = fieldInput(field);
+            rows.push([label, input ? input.value : '']);
+        });
+        rows.push(['Print Date', formatToday()]);
+        return rows;
+    };
+    const headerLabelSet = new Set([
+        ...headerDefinitions.map(([, label]) => label),
+        'Print Date'
+    ]);
+    const buildPrintTitle = () => {
+        const lines = [];
+        headerDefinitions.forEach(([field, label]) => {
+            const input = fieldInput(field);
+            const value = input ? input.value : '';
+            if (value) lines.push(`${label}: ${value}`);
+        });
+        lines.push(`Print Date: ${formatToday()}`);
+        return lines.join('<br>');
+    };
     async function exportTableFile(options) {
         try {
             const headers = exportHeaders();
@@ -483,21 +513,33 @@
                 })
             ]);
             const filename = options.filename || activeStyleNo || 'BOM';
+            const headerRows = exportHeaderRows();
             if (options.type === 'csv') {
                 const csvCell = value => {
                     const text = String(value ?? '');
                     return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
                 };
-                const csv = [headers, ...data].map(row => row.map(csvCell).join(',')).join('\r\n');
+                const allRows = [
+                    ...headerRows.map(row => [row[0], row[1]]),
+                    [],
+                    headers,
+                    ...data
+                ];
+                const csv = allRows.map(row => row.map(csvCell).join(',')).join('\r\n');
                 await saveFile(filename, 'csv', `\ufeff${csv}`);
                 return;
             }
             const workbook = new ExcelJS.Workbook();
             const sheet = workbook.addWorksheet('BOM');
+            headerRows.forEach(row => sheet.addRow([row[0], row[1]]));
+            sheet.addRow([]);
+            const headerRowIndex = headerRows.length + 2;
             sheet.addRow(headers);
             data.forEach(row => sheet.addRow(row));
-            sheet.views = [{ state: 'frozen', ySplit: 1 }];
-            sheet.columns.forEach(column => { column.width = 20; });
+            sheet.views = [{ state: 'frozen', ySplit: headerRowIndex }];
+            sheet.columns.forEach((column, index) => {
+                column.width = index === 0 ? 24 : 20;
+            });
             const buffer = await workbook.xlsx.writeBuffer();
             await saveFile(filename, 'xlsx', new Blob([buffer], {
                 type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -563,7 +605,26 @@
         if (!records.length) {
             throw new Error('文件列结构不匹配，请使用表格工具栏导出的模板');
         }
-        const fileHeaders = records[0].map(header => String(header ?? '').trim());
+        let startIndex = 0;
+        const firstLabel = String(records[0]?.[0] ?? '').trim();
+        if (headerLabelSet.has(firstLabel)) {
+            let index = 0;
+            while (index < records.length) {
+                const label = String(records[index]?.[0] ?? '').trim();
+                if (label === '') {
+                    index++;
+                    break;
+                }
+                if (!headerLabelSet.has(label)) break;
+                index++;
+            }
+            startIndex = index;
+        }
+        const remaining = records.slice(startIndex);
+        if (!remaining.length) {
+            throw new Error('文件列结构不匹配，请使用表格工具栏导出的模板');
+        }
+        const fileHeaders = remaining[0].map(header => String(header ?? '').trim());
         const hasParentColumn = fileHeaders.length === legacyHeaders.length &&
             fileHeaders.every((header, index) => header === legacyHeaders[index]);
         const validHeaders = fileHeaders.length === headers.length &&
@@ -572,12 +633,12 @@
             throw new Error('文件列结构不匹配，请使用表格工具栏导出的模板');
         }
         const columnCount = hasParentColumn ? legacyHeaders.length : headers.length;
-        records = records.map(record => Array.from(
+        const normalizedRecords = remaining.map(record => Array.from(
             { length: columnCount },
             (_, index) => String(record[index] ?? '')
         ));
         let previousCategory = '';
-        return records.slice(1).filter(record => record.some(value => value !== '')).map(record => {
+        return normalizedRecords.slice(1).filter(record => record.some(value => value !== '')).map(record => {
             const category = record[0].trim() || previousCategory;
             if (category) previousCategory = category;
             const parentRowValue = hasParentColumn ? record[headers.length].trim() : '';
@@ -771,7 +832,7 @@
             const toolbar = h(VxeToolbarComponent, {
                 ref: setGridToolbar,
                 custom: true,
-                print: true,
+                print: false,
                 perfect: true
             });
             return h('div', { class: 'table-shell' }, [toolbar, table]);
@@ -1638,6 +1699,26 @@
         event.preventDefault();
         exportBackdrop.hidden = true;
         await exportCurrentTable(document.getElementById('export-format').value);
+    });
+
+    document.getElementById('print-table').addEventListener('click', () => {
+        if (!activeStyleNo) {
+            showStatus('请先选择鞋款', true);
+            return;
+        }
+        if (!gridTable) {
+            showStatus('表格尚未初始化', true);
+            return;
+        }
+        try {
+            gridTable.print({
+                mode: 'current',
+                isFooter: true,
+                title: buildPrintTitle()
+            });
+        } catch (error) {
+            showStatus(`打印失败：${error.message}`, true);
+        }
     });
 
     async function start() {
